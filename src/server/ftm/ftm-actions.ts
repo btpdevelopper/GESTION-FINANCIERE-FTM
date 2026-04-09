@@ -16,6 +16,7 @@ import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
 import { can } from "@/lib/permissions/resolve";
 import { Capability } from "@prisma/client";
+import { sendInvitationEmail } from "@/lib/email";
 
 async function audit(userId: string | undefined, action: string, entity: string, entityId?: string, payload?: object) {
   await prisma.auditLog.create({
@@ -184,6 +185,12 @@ export async function inviteEtudesParticipantAction(input: {
   await audit(user.id, "FTM_INVITE_ETUDES", "FtmParticipantInvitation", input.ftmId, {
     email: input.email,
   });
+
+  // Envoyer l'email avec le token généré
+  await sendInvitationEmail(input.email, raw, input.projectId, input.ftmId).catch((err) => {
+    console.error("Non bloquant: Erreur lors de l'envoi d'email 72h:", err);
+  });
+
   revalidatePath(`/projects/${input.projectId}/ftms/${input.ftmId}`);
   return { token: raw, expiresAt };
 }

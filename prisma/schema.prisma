@@ -12,32 +12,35 @@ datasource db {
 // --- Profil applicatif (id = auth.users.id côté Supabase Auth) ---
 
 model User {
-  id            String    @id @db.Uuid
-  email         String    @unique
-  emailVerified DateTime?
-  name          String?
-  image         String?
-  memberships   UserOrganization[]
+  id             String             @id @db.Uuid
+  email          String             @unique
+  name           String?
+  image          String?
+  isAdmin        Boolean            @default(false)
+  memberships    UserOrganization[]
   projectMembers ProjectMember[]
-  auditLogs     AuditLog[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  auditLogs      AuditLog[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  ftmDocuments   FtmDocument[]
 }
 
 // --- Organizations & projects ---
 
 model Organization {
-  id               String              @id @default(uuid()) @db.Uuid
-  name             String
-  slug             String?             @unique
+  id                String                     @id @default(uuid()) @db.Uuid
+  name              String
+  slug              String?                    @unique
   userOrganizations UserOrganization[]
-  projectMembers   ProjectMember[]
-  ftmsConcerned    FtmConcernedOrganization[]
-  ftmLots          FtmLot[]
-  quoteSubmissions FtmQuoteSubmission[]
-  situations       SituationTravaux[]
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  projectMembers    ProjectMember[]
+  ftmsConcerned     FtmConcernedOrganization[]
+  ftmLots           FtmLot[]
+  quoteSubmissions  FtmQuoteSubmission[]
+  situations        SituationTravaux[]
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  ftmDocuments      FtmDocument[]
+  projectLots       ProjectLotOrganization[]
 }
 
 model UserOrganization {
@@ -51,16 +54,39 @@ model UserOrganization {
 }
 
 model Project {
-  id               String              @id @default(uuid()) @db.Uuid
+  id               String                   @id @default(uuid()) @db.Uuid
   name             String
   code             String?
   baseContract     BaseContract?
+  lots             ProjectLot[]
   members          ProjectMember[]
   ftms             FtmRecord[]
   permissionGroups ProjectPermissionGroup[]
   situations       SituationTravaux[]
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+}
+
+model ProjectLot {
+  id            String                   @id @default(uuid()) @db.Uuid
+  projectId     String                   @db.Uuid
+  label         String
+  description   String?                  @db.Text
+  project       Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizations ProjectLotOrganization[]
+
+  @@index([projectId])
+}
+
+model ProjectLotOrganization {
+  id                   String       @id @default(uuid()) @db.Uuid
+  projectLotId         String       @db.Uuid
+  organizationId       String       @db.Uuid
+  montantMarcheHtCents BigInt
+  projectLot           ProjectLot   @relation(fields: [projectLotId], references: [id], onDelete: Cascade)
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([projectLotId, organizationId])
 }
 
 enum ProjectRole {
@@ -70,23 +96,22 @@ enum ProjectRole {
 }
 
 model ProjectMember {
-  id                 String       @id @default(uuid()) @db.Uuid
-  userId             String       @db.Uuid
-  projectId          String       @db.Uuid
-  organizationId     String       @db.Uuid
-  role               ProjectRole
-  permissionGroupId  String?      @db.Uuid
-  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project            Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  permissionGroup    ProjectPermissionGroup? @relation(fields: [permissionGroupId], references: [id])
-  entrepriseScope    EntrepriseScope?
-  initiatedFtms      FtmRecord[]  @relation("FtmInitiator")
-  creationDecisions  FtmRecord[]  @relation("FtmCreationMoeDecider")
-  designatedMoaFtms  FtmRecord[]  @relation("FtmDesignatedMoa")
-  moaEtudesDecisions FtmRecord[]  @relation("FtmMoaEtudesDecider")
-  chatMessages       FtmChatMessage[]
-  reviews            FtmReview[]
+  id                  String                            @id @default(uuid()) @db.Uuid
+  userId              String                            @db.Uuid
+  projectId           String                            @db.Uuid
+  organizationId      String                            @db.Uuid
+  role                ProjectRole
+  permissionGroupId   String?                           @db.Uuid
+  user                User                              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project             Project                           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization        Organization                      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissionGroup     ProjectPermissionGroup?           @relation(fields: [permissionGroupId], references: [id])
+  initiatedFtms       FtmRecord[]                       @relation("FtmInitiator")
+  creationDecisions   FtmRecord[]                       @relation("FtmCreationMoeDecider")
+  designatedMoaFtms   FtmRecord[]                       @relation("FtmDesignatedMoa")
+  moaEtudesDecisions  FtmRecord[]                       @relation("FtmMoaEtudesDecider")
+  chatMessages        FtmChatMessage[]
+  reviews             FtmReview[]
   capabilityOverrides ProjectMemberCapabilityOverride[]
 
   @@unique([userId, projectId, organizationId])
@@ -94,33 +119,27 @@ model ProjectMember {
   @@index([userId])
 }
 
-model EntrepriseScope {
-  id               String        @id @default(uuid()) @db.Uuid
-  projectMemberId  String        @unique @db.Uuid
-  montantMarcheHt  Decimal       @db.Decimal(18, 2)
-  lotLabel         String?
-  projectMember    ProjectMember @relation(fields: [projectMemberId], references: [id], onDelete: Cascade)
-}
+
 
 model BaseContract {
-  id             String   @id @default(uuid()) @db.Uuid
-  projectId      String   @unique @db.Uuid
-  label          String
-  amountHt       Decimal  @db.Decimal(18, 2)
-  signatureDate  DateTime?
-  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id            String    @id @default(uuid()) @db.Uuid
+  projectId     String    @unique @db.Uuid
+  label         String
+  amountHtCents BigInt
+  signatureDate DateTime?
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 // --- RBAC (groups + deny-wins overrides) ---
 
 model ProjectPermissionGroup {
-  id          String                           @id @default(uuid()) @db.Uuid
-  projectId   String                           @db.Uuid
-  name        String
-  project     Project                          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id           String                             @id @default(uuid()) @db.Uuid
+  projectId    String                             @db.Uuid
+  name         String
+  project      Project                            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   capabilities ProjectPermissionGroupCapability[]
-  members     ProjectMember[]
-  createdAt   DateTime                         @default(now())
+  members      ProjectMember[]
+  createdAt    DateTime                           @default(now())
 }
 
 enum Capability {
@@ -140,20 +159,20 @@ enum Capability {
 }
 
 model ProjectPermissionGroupCapability {
-  id        String                 @id @default(uuid()) @db.Uuid
-  groupId   String                 @db.Uuid
+  id         String                 @id @default(uuid()) @db.Uuid
+  groupId    String                 @db.Uuid
   capability Capability
-  group     ProjectPermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group      ProjectPermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, capability])
 }
 
 model ProjectMemberCapabilityOverride {
-  id               String        @id @default(uuid()) @db.Uuid
-  projectMemberId  String        @db.Uuid
-  capability       Capability
-  allowed          Boolean
-  projectMember    ProjectMember @relation(fields: [projectMemberId], references: [id], onDelete: Cascade)
+  id              String        @id @default(uuid()) @db.Uuid
+  projectMemberId String        @db.Uuid
+  capability      Capability
+  allowed         Boolean
+  projectMember   ProjectMember @relation(fields: [projectMemberId], references: [id], onDelete: Cascade)
 
   @@unique([projectMemberId, capability])
 }
@@ -189,67 +208,74 @@ enum MoaEtudesDecision {
 }
 
 model FtmRecord {
-  id                          String               @id @default(uuid()) @db.Uuid
-  projectId                   String               @db.Uuid
-  phase                       FtmPhase             @default(CREATION)
-  title                       String
-  modificationSource          ModificationSource
+  id                 String             @id @default(uuid()) @db.Uuid
+  projectId          String             @db.Uuid
+  number             Int                @default(0)
+  phase              FtmPhase           @default(CREATION)
+  title              String
+  modificationSource ModificationSource
 
-  initiatorProjectMemberId    String               @db.Uuid
-  initiator                   ProjectMember        @relation("FtmInitiator", fields: [initiatorProjectMemberId], references: [id])
+  initiatorProjectMemberId String        @db.Uuid
+  initiator                ProjectMember @relation("FtmInitiator", fields: [initiatorProjectMemberId], references: [id])
 
-  creationMoeDecision         CreationMoeDecision  @default(PENDING)
-  creationMoeDecidedById      String?              @db.Uuid
-  creationMoeDecidedBy        ProjectMember?       @relation("FtmCreationMoeDecider", fields: [creationMoeDecidedById], references: [id])
-  creationMoeDecidedAt        DateTime?
+  creationMoeDecision    CreationMoeDecision @default(PENDING)
+  creationMoeDecidedById String?             @db.Uuid
+  creationMoeDecidedBy   ProjectMember?      @relation("FtmCreationMoeDecider", fields: [creationMoeDecidedById], references: [id])
+  creationMoeDecidedAt   DateTime?
 
-  etudesDescription           String?              @db.Text
+  etudesDescription String? @db.Text
 
-  moaEtudesDecision           MoaEtudesDecision    @default(PENDING)
-  moaEtudesDecidedById        String?              @db.Uuid
-  moaEtudesDecidedBy          ProjectMember?       @relation("FtmMoaEtudesDecider", fields: [moaEtudesDecidedById], references: [id])
-  moaEtudesDecidedAt          DateTime?
-  moaEtudesComment            String?              @db.Text
+  moaEtudesDecision    MoaEtudesDecision @default(PENDING)
+  moaEtudesDecidedById String?           @db.Uuid
+  moaEtudesDecidedBy   ProjectMember?    @relation("FtmMoaEtudesDecider", fields: [moaEtudesDecidedById], references: [id])
+  moaEtudesDecidedAt   DateTime?
+  moaEtudesComment     String?           @db.Text
 
-  designatedMoaValidatorId    String?              @db.Uuid
-  designatedMoaValidator    ProjectMember?       @relation("FtmDesignatedMoa", fields: [designatedMoaValidatorId], references: [id])
+  requestedMoeResponseDate DateTime?
+  documents                FtmDocument[]
 
-  concernedOrgs               FtmConcernedOrganization[]
-  lots                        FtmLot[]
-  invitations                 FtmParticipantInvitation[]
-  chatMessages                FtmChatMessage[]
-  quoteSubmissions            FtmQuoteSubmission[]
+  designatedMoaValidatorId String?        @db.Uuid
+  designatedMoaValidator   ProjectMember? @relation("FtmDesignatedMoa", fields: [designatedMoaValidatorId], references: [id])
 
-  createdAt                   DateTime             @default(now())
-  updatedAt                   DateTime             @updatedAt
+  concernedOrgs    FtmConcernedOrganization[]
+  lots             FtmLot[]
+  invitations      FtmParticipantInvitation[]
+  chatMessages     FtmChatMessage[]
+  quoteSubmissions FtmQuoteSubmission[]
 
-  project                     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
+  @@unique([projectId, number])
   @@index([phase])
 }
 
 model FtmConcernedOrganization {
-  id              String       @id @default(uuid()) @db.Uuid
-  ftmId           String       @db.Uuid
-  organizationId  String       @db.Uuid
-  dateLimiteDevis DateTime?
-  description     String?      @db.Text
-  ftm             FtmRecord    @relation(fields: [ftmId], references: [id], onDelete: Cascade)
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id                    String       @id @default(uuid()) @db.Uuid
+  ftmId                 String       @db.Uuid
+  organizationId        String       @db.Uuid
+  dateLimiteDevis       DateTime?
+  description           String?      @db.Text
+  reminderFrequencyDays Int?
+  lastReminderAt        DateTime?
+  ftm                   FtmRecord    @relation(fields: [ftmId], references: [id], onDelete: Cascade)
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([ftmId, organizationId])
 }
 
 model FtmLot {
-  id                  String    @id @default(uuid()) @db.Uuid
-  ftmId               String    @db.Uuid
-  organizationId    String?   @db.Uuid
-  lotLabel            String?
-  descriptionTravaux  String    @db.Text
-  ftm                 FtmRecord @relation(fields: [ftmId], references: [id], onDelete: Cascade)
-  organization        Organization? @relation(fields: [organizationId], references: [id])
-  quoteSubmissions    FtmQuoteSubmission[]
+  id                 String               @id @default(uuid()) @db.Uuid
+  ftmId              String               @db.Uuid
+  organizationId     String?              @db.Uuid
+  lotLabel           String?
+  descriptionTravaux String               @db.Text
+  ftm                FtmRecord            @relation(fields: [ftmId], references: [id], onDelete: Cascade)
+  organization       Organization?        @relation(fields: [organizationId], references: [id])
+  quoteSubmissions   FtmQuoteSubmission[]
 
   @@index([ftmId, organizationId])
 }
@@ -260,17 +286,17 @@ enum ParticipantInviteRole {
 }
 
 model FtmParticipantInvitation {
-  id             String                @id @default(uuid()) @db.Uuid
-  ftmId          String                @db.Uuid
-  email          String
-  userId         String?               @db.Uuid
-  tokenHash      String
-  expiresAt      DateTime
-  role           ParticipantInviteRole @default(OTHER)
-  contribution   String?               @db.Text
-  consumedAt     DateTime?
-  ftm            FtmRecord             @relation(fields: [ftmId], references: [id], onDelete: Cascade)
-  createdAt      DateTime              @default(now())
+  id           String                @id @default(uuid()) @db.Uuid
+  ftmId        String                @db.Uuid
+  email        String
+  userId       String?               @db.Uuid
+  tokenHash    String
+  expiresAt    DateTime
+  role         ParticipantInviteRole @default(OTHER)
+  contribution String?               @db.Text
+  consumedAt   DateTime?
+  ftm          FtmRecord             @relation(fields: [ftmId], references: [id], onDelete: Cascade)
+  createdAt    DateTime              @default(now())
 
   @@index([ftmId])
 }
@@ -289,17 +315,19 @@ model FtmChatMessage {
 }
 
 model FtmQuoteSubmission {
-  id               String       @id @default(uuid()) @db.Uuid
-  ftmId            String       @db.Uuid
-  ftmLotId         String       @db.Uuid
-  organizationId   String       @db.Uuid
-  indice           Int
-  amountHt         Decimal      @db.Decimal(18, 2)
-  submittedAt      DateTime     @default(now())
-  ftm              FtmRecord    @relation(fields: [ftmId], references: [id], onDelete: Cascade)
-  ftmLot           FtmLot       @relation(fields: [ftmLotId], references: [id], onDelete: Cascade)
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  reviews          FtmReview[]
+  id             String       @id @default(uuid()) @db.Uuid
+  ftmId          String       @db.Uuid
+  ftmLotId       String       @db.Uuid
+  organizationId String       @db.Uuid
+  indice         Int
+  amountHtCents  BigInt
+  documentUrl    String?
+  documentName   String?
+  submittedAt    DateTime     @default(now())
+  ftm            FtmRecord    @relation(fields: [ftmId], references: [id], onDelete: Cascade)
+  ftmLot         FtmLot       @relation(fields: [ftmLotId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reviews        FtmReview[]
 
   @@unique([ftmLotId, organizationId, indice])
   @@index([ftmId])
@@ -322,16 +350,16 @@ enum DeclineScope {
 }
 
 model FtmReview {
-  id                      String           @id @default(uuid()) @db.Uuid
-  quoteSubmissionId       String           @db.Uuid
+  id                      String             @id @default(uuid()) @db.Uuid
+  quoteSubmissionId       String             @db.Uuid
   context                 ReviewContext
-  reviewerProjectMemberId String           @db.Uuid
+  reviewerProjectMemberId String             @db.Uuid
   decision                ReviewDecision
-  comment                 String           @db.Text
+  comment                 String             @db.Text
   declineScope            DeclineScope?
-  decidedAt               DateTime         @default(now())
+  decidedAt               DateTime           @default(now())
   quoteSubmission         FtmQuoteSubmission @relation(fields: [quoteSubmissionId], references: [id], onDelete: Cascade)
-  reviewer                ProjectMember    @relation(fields: [reviewerProjectMemberId], references: [id])
+  reviewer                ProjectMember      @relation(fields: [reviewerProjectMemberId], references: [id])
 
   @@index([quoteSubmissionId])
 }
@@ -339,16 +367,16 @@ model FtmReview {
 // --- Situation travaux (minimal) ---
 
 model SituationTravaux {
-  id               String       @id @default(uuid()) @db.Uuid
-  projectId        String       @db.Uuid
-  organizationId   String       @db.Uuid
-  periodLabel      String
-  amountHt         Decimal      @db.Decimal(18, 2)
-  status           String       @default("DRAFT")
-  submittedAt      DateTime?
-  validatedAt      DateTime?
-  project          Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id             String       @id @default(uuid()) @db.Uuid
+  projectId      String       @db.Uuid
+  organizationId String       @db.Uuid
+  periodLabel    String
+  amountHtCents  BigInt
+  status         String       @default("DRAFT")
+  submittedAt    DateTime?
+  validatedAt    DateTime?
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
 }
@@ -366,4 +394,20 @@ model AuditLog {
   user      User?    @relation(fields: [userId], references: [id])
 
   @@index([entity, entityId])
+}
+
+model FtmDocument {
+  id             String   @id @default(uuid()) @db.Uuid
+  ftmId          String   @db.Uuid
+  organizationId String?  @db.Uuid
+  name           String
+  url            String
+  uploadedById   String   @db.Uuid
+  createdAt      DateTime @default(now())
+
+  ftm          FtmRecord     @relation(fields: [ftmId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedBy   User          @relation(fields: [uploadedById], references: [id])
+
+  @@index([ftmId])
 }

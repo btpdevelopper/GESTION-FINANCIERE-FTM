@@ -5,7 +5,6 @@ import { Check, History, X } from "lucide-react";
 import React, { useState } from "react";
 
 const PHASE_STEPS = [
-  { key: "CREATION", label: "Création", phase: FtmPhase.CREATION },
   { key: "ETUDES", label: "Études", phase: FtmPhase.ETUDES },
   { key: "QUOTING", label: "Devis", phase: FtmPhase.QUOTING },
   { key: "ANALYSIS", label: "Analyse MOE", phase: FtmPhase.ANALYSIS },
@@ -13,7 +12,6 @@ const PHASE_STEPS = [
 ] as const;
 
 const PHASE_ORDER = [
-  FtmPhase.CREATION,
   FtmPhase.ETUDES,
   FtmPhase.QUOTING,
   FtmPhase.ANALYSIS,
@@ -25,7 +23,7 @@ type PhaseKey = (typeof PHASE_STEPS)[number]["key"];
 function getStepStatus(ftmPhase: FtmPhase, stepIndex: number) {
   if (ftmPhase === FtmPhase.CANCELLED) return "CANCELLED" as const;
   if (ftmPhase === FtmPhase.ACCEPTED) return "COMPLETED" as const;
-  const currentIndex = PHASE_ORDER.indexOf(ftmPhase);
+  const currentIndex = PHASE_ORDER.indexOf(ftmPhase as any);
   if (stepIndex < currentIndex) return "COMPLETED" as const;
   if (stepIndex === currentIndex) return "ACTIVE" as const;
   return "UPCOMING" as const;
@@ -35,7 +33,7 @@ function getDefaultTab(ftmPhase: FtmPhase): PhaseKey {
   if (ftmPhase === FtmPhase.CANCELLED || ftmPhase === FtmPhase.ACCEPTED) {
     return "MOA_FINAL";
   }
-  const idx = PHASE_ORDER.indexOf(ftmPhase);
+  const idx = PHASE_ORDER.indexOf(ftmPhase as any);
   return PHASE_STEPS[Math.max(0, idx)].key;
 }
 
@@ -43,10 +41,12 @@ export function FtmDetailShell({
   ftm,
   tabContent,
   historyDrawer,
+  headerSection,
 }: {
   ftm: { phase: FtmPhase; title: string; number: number };
   tabContent: Record<PhaseKey, React.ReactNode>;
   historyDrawer: React.ReactNode;
+  headerSection: React.ReactNode;
 }) {
   const [activeTab, setActiveTab] = useState<PhaseKey>(() =>
     getDefaultTab(ftm.phase)
@@ -55,16 +55,8 @@ export function FtmDetailShell({
 
   return (
     <div className="flex flex-col gap-0">
-      {/* ── Unified Clickable Stepper ── */}
       <div className="rounded-t-xl border border-b-0 border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-3 text-lg font-semibold text-slate-900 dark:text-slate-100">
-            <span className="rounded-md bg-slate-100 px-2 py-1 text-sm tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-              FTM N°{ftm.number}
-            </span>
-            <span>{ftm.title}</span>
-          </div>
-        </div>
+        {headerSection}
         <div className="flex items-center">
           <div className="flex flex-1 items-center">
             {PHASE_STEPS.map((step, idx) => {

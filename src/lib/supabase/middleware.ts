@@ -32,10 +32,11 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  if (
-    !user &&
-    path.startsWith("/projects")
-  ) {
+  
+  // RLS & Middleware Lockdown: Deny-by-default for unauthenticated requests.
+  const isPublicRoute = path === "/login" || path.startsWith("/auth/callback");
+  
+  if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("callbackUrl", path);

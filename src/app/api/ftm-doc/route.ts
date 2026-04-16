@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/user";
-import { getFtmDocumentUrl } from "@/lib/storage";
 import { prisma } from "@/lib/prisma";
 import { ProjectRole } from "@prisma/client";
+import { z } from "zod";
 
 export async function GET(request: NextRequest) {
   const user = await getAuthUser();
@@ -11,13 +11,16 @@ export async function GET(request: NextRequest) {
   }
 
   const path = request.nextUrl.searchParams.get("path");
-  if (!path) {
-    return NextResponse.json({ error: "Chemin manquant." }, { status: 400 });
+  if (!path || path.includes('..') || path.startsWith('/')) {
+    return NextResponse.json({ error: "Chemin invalide ou manquant." }, { status: 400 });
   }
 
   try {
     const ftmId = path.split('/')[0];
-    if (!ftmId) throw new Error("Chemin invalide.");
+    const uuidParse = z.string().uuid().safeParse(ftmId);
+    if (!uuidParse.success) {
+      return NextResponse.json({ error: "Format FTM ID invalide." }, { status: 400 });
+    }
 
     // Retrieve the FTM to inherently discover the projectId for auth verification
     const ftm = await prisma.ftmRecord.findUnique({
@@ -57,8 +60,32 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const signedUrl = await getFtmDocumentUrl(path);
-    return NextResponse.redirect(signedUrl);
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceKey) {
+      throw new Error("Missing server credentials");
+    }
+
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/authenticated/ftm-documents/${path}`, {
+      headers: {
+        Authorization: `Bearer ${serviceKey}`,
+      },
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error("Impossible de télécharger le fichier proxy.");
+    }
+
+    // Proxy the stream straight to the client! No signed URLs, no RAM crash.
+    return new NextResponse(response.body, {
+      status: response.status,
+      headers: {
+        "Content-Type": response.headers.get("Content-Type") || "application/octet-stream",
+        "Content-Length": response.headers.get("Content-Length") || "",
+        "Content-Disposition": `inline; filename="${path.split('/').pop()}"`,
+      },
+    });
   } catch (err) {
     console.error("ftm-doc API error:", err);
     return NextResponse.json(

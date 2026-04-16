@@ -76,6 +76,7 @@ export function QuoteTrackingDashboard({
               <th className="px-3 py-2.5 font-medium">Entreprise</th>
               <th className="px-3 py-2.5 font-medium">Statut</th>
               <th className="px-3 py-2.5 font-medium">Indice</th>
+              <th className="px-3 py-2.5 font-medium">N° Devis</th>
               <th className="px-3 py-2.5 font-medium">Date soumission</th>
               <th className="px-3 py-2.5 font-medium">Date limite</th>
               <th className="px-3 py-2.5 font-medium">Montant HT</th>
@@ -107,6 +108,9 @@ export function QuoteTrackingDashboard({
                   <td className="px-3 py-2.5 font-mono text-xs text-slate-600 dark:text-slate-400">
                     {sub ? sub.indice : "—"}
                   </td>
+                  <td className="px-3 py-2.5 text-xs text-slate-600 dark:text-slate-400">
+                    {sub ? (sub.quoteNumber || "—") : "—"}
+                  </td>
                   <td className="px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400">
                     {sub ? (
                       <div className="flex flex-col gap-1">
@@ -118,10 +122,10 @@ export function QuoteTrackingDashboard({
                           })}
                         </span>
                         {sub.documentUrl && (
-                          <a 
-                            href={`/api/ftm-doc?path=${encodeURIComponent(sub.documentUrl)}`} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
+                          <a
+                            href={`/api/ftm-doc?path=${encodeURIComponent(sub.documentUrl)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="font-medium text-slate-600 underline decoration-slate-300 hover:text-slate-900 dark:text-slate-400 dark:decoration-slate-600 dark:hover:text-slate-200"
                           >
                             Télécharger le devis
@@ -138,9 +142,9 @@ export function QuoteTrackingDashboard({
                   <td className="px-3 py-2.5 font-medium text-slate-900 dark:text-slate-200">
                     {sub
                       ? (Number(sub.amountHtCents) / 100).toLocaleString(
-                          "fr-FR",
-                          { style: "currency", currency: "EUR" }
-                        )
+                        "fr-FR",
+                        { style: "currency", currency: "EUR" }
+                      )
                       : "—"}
                   </td>
                   <td className="px-3 py-2.5">
@@ -184,7 +188,7 @@ export function QuoteTrackingDashboard({
             {ftm.concernedOrgs.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-3 py-6 text-center text-sm text-slate-400"
                 >
                   Aucune entreprise consultée.

@@ -5,18 +5,16 @@ import {
   ProjectRole,
   FtmPhase,
   MoaEtudesDecision,
-  CreationMoeDecision,
   Capability,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMember } from "@/server/membership";
-import { getFtmDetail, phaseLabel } from "@/server/ftm/queries";
+import { getFtmDetail } from "@/server/ftm/queries";
 import { resolveCapabilities } from "@/lib/permissions/resolve";
 import {
-  moeDecideCreationAction,
   saveEtudesAction,
   moaDecideEtudesAction,
-  setDeadlinesAndOpenQuotingAction,
+  openQuotingAction,
   postFtmChatAction,
   submitQuoteAction,
   moeAnalyzeQuoteAction,
@@ -31,6 +29,13 @@ import { FtmActionButton } from "./ftm-action-buttons";
 import { FtmDetailShell } from "./ftm-detail-shell";
 import { QuoteTrackingDashboard } from "./quote-tracking-dashboard";
 import { FtmQuoteHistory } from "./ftm-quote-history";
+import { X } from "lucide-react";
+import { MoaValidatorDropdown } from "./moa-validator-dropdown";
+import { EntrepriseEtudesDashboard } from "./entreprise-etudes-dashboard";
+import { CancelFtmModal, ReopenFtmButton } from "./cancel-ftm-modal";
+import { EtudesLotsEditor } from "./etudes-lots-editor";
+import { FtmThreadChat } from "./ftm-thread-chat";
+import { CompanyDemandContext } from "./company-demand-context";
 
 export default async function FtmDetailPage({
   params,
@@ -54,6 +59,11 @@ export default async function FtmDetailPage({
     include: { user: true, organization: true },
   });
 
+  const allOrgs = await prisma.organization.findMany({
+    where: { projectMembers: { some: { projectId } } },
+    select: { id: true, name: true },
+  });
+
   const latestSubmissionsMap = new Map<string, typeof ftm.quoteSubmissions[0]>();
   for (const q of ftm.quoteSubmissions) {
     if (!latestSubmissionsMap.has(q.organizationId)) {
@@ -64,7 +74,7 @@ export default async function FtmDetailPage({
   const myLot = ftm.lots.find((l) => l.organizationId === pm.organizationId);
 
   // ── Precompute Études sub-step states ──
-  const isPastEtudes = ftm.phase !== FtmPhase.CREATION && ftm.phase !== FtmPhase.ETUDES;
+  const isPastEtudes = ftm.phase !== FtmPhase.ETUDES;
   const hasDescription = !!ftm.etudesDescription;
   const isEtudesApproved = ftm.moaEtudesDecision === MoaEtudesDecision.APPROVED;
 
@@ -72,146 +82,121 @@ export default async function FtmDetailPage({
   const mySub = latestSubmissions.find((s) => s.organizationId === pm.organizationId);
   const myReview = mySub?.reviews?.[0];
   const canSubmitQuote =
+    (ftm.phase === FtmPhase.QUOTING || ftm.phase === FtmPhase.ANALYSIS) &&
     pm.role === ProjectRole.ENTREPRISE &&
     myLot &&
     caps[Capability.SUBMIT_QUOTE] &&
     (!mySub || myReview?.decision === "RESEND_CORRECTION");
 
+
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 pb-20">
-      {/* ── Page Header ── */}
-      <div>
+      {/* ── Top Navigation Return ── */}
+      <div className="pt-2">
         <Link
           href={`/projects/${projectId}/ftms`}
           className="text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 dark:hover:text-slate-300"
         >
-          &larr; Tableau des FTM
+          &larr; Retour aux FTM
         </Link>
-        <div className="mt-4 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              {ftm.title}
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Source : {ftm.modificationSource} · Créé le{" "}
-              {new Date(ftm.createdAt).toLocaleDateString("fr-FR")} ·{" "}
-              {ftm.initiator?.organization?.name && (
-                <span>
-                  Initié par{" "}
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    {ftm.initiator.organization.name}
-                  </span>
-                </span>
-              )}
-            </p>
-          </div>
-          <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-            {phaseLabel(ftm.phase)}
-          </span>
-        </div>
-
-        {/* MOA Validator Config — compact inline */}
-        {caps[Capability.ADMIN_PROJECT_PERMISSIONS] && (
-          <form
-            className="mt-3 flex flex-wrap items-center gap-2 text-sm"
-            action={async (fd) => {
-              "use server";
-              const v = fd.get("designatedMoaValidatorId");
-              await setDesignatedMoaValidatorAction({
-                projectId,
-                ftmId,
-                designatedMoaValidatorId: v ? String(v) : null,
-              });
-            }}
-          >
-            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Validateur MOA :
-            </label>
-            <select
-              name="designatedMoaValidatorId"
-              defaultValue={ftm.designatedMoaValidatorId ?? ""}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400"
-            >
-              <option value="">Aucun spécifique</option>
-              {moaMembers.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.user.name ?? m.user.email} ({m.organization.name})
-                </option>
-              ))}
-            </select>
-            <button
-              type="submit"
-              className="rounded-md bg-slate-900 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
-            >
-              Enregistrer
-            </button>
-          </form>
-        )}
       </div>
 
-      {/* ── Tabbed Shell ── */}
       <FtmDetailShell
         ftm={ftm}
-        tabContent={{
-          /* ────────────────────────────────────
-           *  TAB 1: CRÉATION
-           * ──────────────────────────────────── */
-          CREATION: (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Validation MOE de la demande
-                </h3>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  {ftm.initiator?.organization?.name ?? "L'entreprise initiatrice"} a
-                  demandé la création de ce FTM. Une validation formelle du MOE est
-                  requise avant de poursuivre.
-                </p>
+        headerSection={
+          <div className="mb-6 flex flex-col gap-4">
+            {ftm.phase === FtmPhase.CANCELLED && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-900/20">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400">
+                    <X className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-red-800 dark:text-red-300">
+                      FTM {ftm.preCancellationPhase ? "Abandonné" : "Annulé"} par {ftm.cancelledBy?.user?.name || ftm.cancelledBy?.user?.email || "l'Administration"} {ftm.cancelledAt && `le ${new Date(ftm.cancelledAt).toLocaleDateString("fr-FR")}`}
+                    </h3>
+                    {ftm.cancellationReason && (
+                      <p className="mt-1 text-sm text-red-700 dark:text-red-400">
+                        Motif : {ftm.cancellationReason}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Bug #3: Company Demand Context (role-scoped) ── */}
+            {ftm.fromDemand && (() => {
+              const demandInitiatorOrgId = ftm.fromDemand.initiator?.organizationId;
+              const isViewerMoeMoa = pm.role === ProjectRole.MOE || pm.role === ProjectRole.MOA;
+              const isViewerDemandInitiator = pm.organizationId === demandInitiatorOrgId;
+              const canSeeDemandContext = isViewerMoeMoa || isViewerDemandInitiator;
+
+              if (!canSeeDemandContext) return null;
+
+              return (
+                <CompanyDemandContext
+                  companyName={ftm.fromDemand.initiator?.organization?.name ?? ftm.fromDemand.initiator?.user?.name ?? "Entreprise"}
+                  description={ftm.fromDemand.description}
+                  documents={(ftm.fromDemand.documents ?? []).map((d: any) => ({ id: d.id, name: d.name, url: d.url }))}
+                  requestedDate={ftm.fromDemand.requestedMoeResponseDate}
+                />
+              );
+            })()}
+
+            <div className="flex flex-col items-start justify-between gap-4 md:flex-row">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-3">
+                  <span className="rounded bg-slate-100 px-2 py-1 font-mono text-sm font-semibold tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                    FTM N°{ftm.number}
+                  </span>
+                  <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white md:text-2xl">
+                    {ftm.title}
+                  </h1>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                  <span>
+                    Source : <strong className="font-medium text-slate-700 dark:text-slate-300">{ftm.modificationSource}</strong>
+                  </span>
+                  <span className="text-slate-300 dark:text-slate-600">•</span>
+                  <span>Créé le {new Date(ftm.createdAt).toLocaleDateString("fr-FR")}</span>
+                  {ftm.initiator?.organization?.name && (
+                    <span className="flex items-center gap-2">
+                      <span className="text-slate-300 dark:text-slate-600">•</span>
+                      <span>
+                        Initié par <strong className="font-medium text-slate-700 dark:text-slate-300">{ftm.initiator.organization.name}</strong>
+                      </span>
+                    </span>
+                  )}
+                </div>
               </div>
 
-              {ftm.creationMoeDecision === CreationMoeDecision.PENDING ? (
-                pm.role === ProjectRole.MOE &&
-                caps[Capability.APPROVE_FTM_CREATION_MOE] ? (
-                  <div className="flex gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
-                    <FtmActionButton
-                      label="Valider la création"
-                      action={() =>
-                        moeDecideCreationAction({
-                          projectId,
-                          ftmId,
-                          decision: "APPROVED",
-                        })
-                      }
-                    />
-                    <FtmActionButton
-                      label="Refuser"
-                      variant="danger"
-                      action={() =>
-                        moeDecideCreationAction({
-                          projectId,
-                          ftmId,
-                          decision: "DECLINED",
-                        })
-                      }
-                    />
-                  </div>
-                ) : (
-                  <div className="text-sm font-medium text-slate-500">
-                    En attente de la validation MOE.
-                  </div>
-                )
-              ) : (
-                <div className="rounded-md bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                  Décision MOE : {ftm.creationMoeDecision}
-                </div>
-              )}
+              <div className="flex shrink-0 items-center justify-end gap-2">
+                {ftm.phase === FtmPhase.CANCELLED && (pm.role === ProjectRole.MOE || pm.role === ProjectRole.MOA) && (
+                  <ReopenFtmButton projectId={projectId} ftmId={ftmId} />
+                )}
+                {ftm.phase !== FtmPhase.CANCELLED && ftm.phase !== FtmPhase.ACCEPTED && (pm.role === ProjectRole.MOE || pm.role === ProjectRole.MOA) && (
+                  <CancelFtmModal projectId={projectId} ftmId={ftmId} />
+                )}
+                {caps[Capability.ADMIN_PROJECT_PERMISSIONS] && (
+                  <MoaValidatorDropdown
+                    projectId={projectId}
+                    ftmId={ftmId}
+                    currentValidatorId={ftm.designatedMoaValidatorId}
+                    moaMembers={moaMembers}
+                  />
+                )}
+              </div>
             </div>
-          ),
-
+          </div>
+        }
+        tabContent={{
           /* ────────────────────────────────────
-           *  TAB 2: ÉTUDES (guided sub-steps)
+           *  TAB 1: ÉTUDES (guided sub-steps)
            * ──────────────────────────────────── */
-          ETUDES: (
+          ETUDES: pm.role === ProjectRole.ENTREPRISE ? (
+            <EntrepriseEtudesDashboard ftm={ftm} myLot={myLot} projectId={projectId} />
+          ) : (
             <div className="flex flex-col gap-8">
               {/* Step 1: Rédaction */}
               <section>
@@ -244,33 +229,16 @@ export default async function FtmDetailPage({
                   )}
                 </div>
                 {(pm.role === ProjectRole.MOE || pm.role === ProjectRole.MOA) &&
-                caps[Capability.EDIT_ETUDES] &&
-                !isPastEtudes ? (
-                  <form
-                    action={async (fd) => {
-                      "use server";
-                      await saveEtudesAction({
-                        projectId,
-                        ftmId,
-                        etudesDescription: String(fd.get("etudes") ?? ""),
-                      });
-                    }}
-                    className="flex flex-col gap-3"
-                  >
-                    <textarea
-                      name="etudes"
-                      defaultValue={ftm.etudesDescription ?? ""}
-                      rows={4}
-                      placeholder="Descriptions, notes techniques ou synthèses d'études..."
-                      className="rounded-md border border-slate-200 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    />
-                    <button
-                      type="submit"
-                      className="w-fit rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
-                    >
-                      Enregistrer
-                    </button>
-                  </form>
+                  caps[Capability.EDIT_ETUDES] ? (
+                  <EtudesLotsEditor
+                    projectId={projectId}
+                    ftmId={ftmId}
+                    globalDescription={ftm.etudesDescription ?? ""}
+                    lots={ftm.lots as any}
+                    concernedOrgs={ftm.concernedOrgs}
+                    allOrgs={allOrgs}
+                    isLocked={isPastEtudes || (hasDescription && ftm.moaEtudesDecision !== "DECLINED")}
+                  />
                 ) : (
                   <div className="rounded-md bg-slate-50 p-4 text-sm text-slate-600 whitespace-pre-wrap dark:bg-slate-800/60 dark:text-slate-300">
                     {ftm.etudesDescription || "Aucune étude renseignée."}
@@ -294,9 +262,9 @@ export default async function FtmDetailPage({
                             <span className="text-slate-400">
                               {inv.consumedAt
                                 ? new Date(inv.consumedAt).toLocaleDateString(
-                                    "fr-FR",
-                                    { day: "2-digit", month: "short", year: "numeric" }
-                                  )
+                                  "fr-FR",
+                                  { day: "2-digit", month: "short", year: "numeric" }
+                                )
                                 : ""}
                             </span>
                           </div>
@@ -318,7 +286,7 @@ export default async function FtmDetailPage({
                 {/* Upload form — MOE/MOA during ETUDES only */}
                 {(pm.role === ProjectRole.MOE || pm.role === ProjectRole.MOA) &&
                   caps[Capability.EDIT_ETUDES] &&
-                  !isPastEtudes && (
+                  ftm.phase === FtmPhase.ETUDES && (
                     <form
                       action={async (fd) => {
                         "use server";
@@ -443,19 +411,17 @@ export default async function FtmDetailPage({
 
               {/* Step 2: Validation MOA */}
               <section
-                className={`transition-opacity duration-200 ${
-                  !hasDescription ? "pointer-events-none opacity-40" : ""
-                }`}
+                className={`transition-opacity duration-200 ${!hasDescription ? "pointer-events-none opacity-40" : ""
+                  }`}
               >
                 <div className="flex items-center gap-3 mb-3">
                   <span
-                    className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
-                      isEtudesApproved
-                        ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                        : hasDescription
-                          ? "border-2 border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100"
-                          : "bg-slate-200 text-slate-400 dark:bg-slate-700 dark:text-slate-500"
-                    }`}
+                    className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isEtudesApproved
+                      ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                      : hasDescription
+                        ? "border-2 border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100"
+                        : "bg-slate-200 text-slate-400 dark:bg-slate-700 dark:text-slate-500"
+                      }`}
                   >
                     2
                   </span>
@@ -535,19 +501,17 @@ export default async function FtmDetailPage({
 
               {/* Step 3: Deadlines & Open Quoting */}
               <section
-                className={`transition-opacity duration-200 ${
-                  !isEtudesApproved ? "pointer-events-none opacity-40" : ""
-                }`}
+                className={`transition-opacity duration-200 ${!isEtudesApproved ? "pointer-events-none opacity-40" : ""
+                  }`}
               >
                 <div className="flex items-center gap-3 mb-3">
                   <span
-                    className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
-                      isPastEtudes
-                        ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                        : isEtudesApproved
-                          ? "border-2 border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100"
-                          : "bg-slate-200 text-slate-400 dark:bg-slate-700 dark:text-slate-500"
-                    }`}
+                    className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isPastEtudes
+                      ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                      : isEtudesApproved
+                        ? "border-2 border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100"
+                        : "bg-slate-200 text-slate-400 dark:bg-slate-700 dark:text-slate-500"
+                      }`}
                   >
                     3
                   </span>
@@ -568,50 +532,18 @@ export default async function FtmDetailPage({
                   (caps[Capability.SET_DEADLINES_AFTER_ETUDES] ||
                     caps[Capability.VALIDATE_ETUDES_MOA]) && (
                     <form
-                      action={async (fd) => {
+                      action={async () => {
                         "use server";
-                        const entries = Array.from(fd.entries()).filter(([k]) =>
-                          k.startsWith("deadline-")
-                        );
-                        const deadlines = entries.map(([k, v]) => ({
-                          organizationId: k.replace("deadline-", ""),
-                          dateLimiteDevis: String(v),
-                        }));
-                        await setDeadlinesAndOpenQuotingAction({
+                        await openQuotingAction({
                           projectId,
                           ftmId,
-                          deadlines,
                         });
                       }}
                       className="flex flex-col gap-4"
                     >
                       <p className="text-sm text-slate-500">
-                        Définissez les délais pour chaque lot. Cette action
-                        verrouille les études et ouvre la phase de chiffrage.
+                        Cette action verrouille les études et ouvre la phase de chiffrage pour toutes les entreprises concernées.
                       </p>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        {ftm.concernedOrgs.map((c: any) => (
-                          <label
-                            key={c.id}
-                            className="flex flex-col text-sm font-medium text-slate-700 dark:text-slate-300"
-                          >
-                            {c.organization.name}
-                            <input
-                              type="datetime-local"
-                              name={`deadline-${c.organizationId}`}
-                              required
-                              defaultValue={
-                                c.dateLimiteDevis
-                                  ? new Date(c.dateLimiteDevis)
-                                      .toISOString()
-                                      .slice(0, 16)
-                                  : undefined
-                              }
-                              className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-                            />
-                          </label>
-                        ))}
-                      </div>
                       <button
                         type="submit"
                         className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
@@ -638,9 +570,9 @@ export default async function FtmDetailPage({
                           <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
                             {c.dateLimiteDevis
                               ? new Date(c.dateLimiteDevis).toLocaleString(
-                                  "fr-FR",
-                                  { dateStyle: "short", timeStyle: "short" }
-                                )
+                                "fr-FR",
+                                { dateStyle: "short", timeStyle: "short" }
+                              )
                               : "Aucun délai"}
                           </div>
                         </div>
@@ -669,15 +601,12 @@ export default async function FtmDetailPage({
               {pm.role === ProjectRole.ENTREPRISE &&
                 myLot &&
                 caps[Capability.SUBMIT_QUOTE] && (
-                  <>
+                  <div className="w-full">
                     {canSubmitQuote ? (
                       <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900/50">
                         <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                           Soumettre votre devis
                         </h4>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {myLot.descriptionTravaux}
-                        </p>
                         {myReview?.decision === "RESEND_CORRECTION" && (
                           <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                             Renvoyé pour correction : {myReview.comment}
@@ -690,7 +619,7 @@ export default async function FtmDetailPage({
                             fd.set("ftmId", ftmId);
                             fd.set("ftmLotId", myLot.id);
                             fd.set("organizationId", pm.organizationId);
-                            
+
                             const amt = fd.get("amountHt") as string;
                             const cents = BigInt(Math.round(parseFloat((amt || "0").replace(",", ".")) * 100));
                             fd.set("amountHtCents", cents.toString());
@@ -700,7 +629,16 @@ export default async function FtmDetailPage({
                           className="mt-4 flex flex-col gap-4"
                         >
                           <div className="flex flex-wrap items-end gap-3 cursor-pointer">
-                            <div className="relative flex-1 min-w-[200px] max-w-sm">
+                            <div className="flex-1 min-w-[150px] max-w-[200px]">
+                              <input
+                                name="quoteNumber"
+                                type="text"
+                                required
+                                placeholder="N° Devis"
+                                className="w-full rounded-md border border-slate-200 bg-white py-2 px-3 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                              />
+                            </div>
+                            <div className="relative flex-1 min-w-[150px] max-w-sm">
                               <input
                                 name="amountHt"
                                 type="text"
@@ -750,73 +688,19 @@ export default async function FtmDetailPage({
                         </div>
                       </div>
                     )}
-                  </>
+                  </div>
                 )}
 
               {/* Chat */}
-              <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900/50">
-                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Messagerie
-                </h4>
-                <div className="mt-3 flex flex-col gap-2">
-                  <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto pr-1">
-                    {ftm.chatMessages.map((m: any) => (
-                      <li
-                        key={m.id}
-                        className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-800/60"
-                      >
-                        <div className="mb-0.5 flex items-center justify-between text-xs text-slate-400">
-                          <span className="font-medium text-slate-600 dark:text-slate-300">
-                            {m.author
-                              ? `${m.author.user.name ?? m.author.user.email} (${m.author.organization.name})`
-                              : "Invité"}
-                          </span>
-                          <span>
-                            {new Date(m.createdAt).toLocaleString("fr-FR", {
-                              dateStyle: "short",
-                              timeStyle: "short",
-                            })}
-                          </span>
-                        </div>
-                        <p className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">
-                          {m.body}
-                        </p>
-                      </li>
-                    ))}
-                    {ftm.chatMessages.length === 0 && (
-                      <p className="py-4 text-center text-sm text-slate-400">
-                        Aucun message.
-                      </p>
-                    )}
-                  </ul>
-                  {caps[Capability.POST_FTM_CHAT] && (
-                    <form
-                      action={async (fd) => {
-                        "use server";
-                        await postFtmChatAction({
-                          projectId,
-                          ftmId,
-                          body: String(fd.get("body") ?? ""),
-                        });
-                      }}
-                      className="mt-1 flex gap-2"
-                    >
-                      <input
-                        name="body"
-                        placeholder="Écrire un message..."
-                        className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-                        required
-                      />
-                      <button
-                        type="submit"
-                        className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
-                      >
-                        Envoyer
-                      </button>
-                    </form>
-                  )}
-                </div>
-              </div>
+              <FtmThreadChat
+                projectId={projectId}
+                ftmId={ftmId}
+                messages={ftm.chatMessages}
+                concernedOrgs={ftm.concernedOrgs}
+                pmRole={pm.role}
+                pmId={pm.id}
+                capabilities={caps}
+              />
             </div>
           ),
 
@@ -832,6 +716,7 @@ export default async function FtmDetailPage({
                   <p className="text-sm text-slate-400">Aucun devis soumis pour le moment.</p>
                 )}
                 {latestSubmissions.map((sub) => {
+                  const showSensitiveStats = pm.role !== ProjectRole.ENTREPRISE || pm.organizationId === sub.organizationId;
                   const moeReview = sub.reviews.find((r: any) => r.context === "MOE_ANALYSIS");
                   const decisionBadge = (d: string) => {
                     const map: Record<string, { label: string; cls: string }> = {
@@ -865,12 +750,14 @@ export default async function FtmDetailPage({
                             </a>
                           )}
                         </div>
-                        <div className="text-right">
-                          <div className="text-base font-bold text-slate-900 dark:text-white">
-                            {(Number(sub.amountHtCents) / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })} HT
+                        {showSensitiveStats && (
+                          <div className="text-right">
+                            <div className="text-base font-bold text-slate-900 dark:text-white">
+                              {(Number(sub.amountHtCents) / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })} HT
+                            </div>
+                            <div className="text-xs text-slate-400">Indice {sub.indice} — Soumis le {new Date(sub.submittedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}</div>
                           </div>
-                          <div className="text-xs text-slate-400">Indice {sub.indice}</div>
-                        </div>
+                        )}
                       </div>
 
                       {/* Existing MOE review detail */}
@@ -945,6 +832,7 @@ export default async function FtmDetailPage({
                   <p className="text-sm text-slate-400">Aucun devis soumis.</p>
                 )}
                 {latestSubmissions.map((sub) => {
+                  const showSensitiveStats = pm.role !== ProjectRole.ENTREPRISE || pm.organizationId === sub.organizationId;
                   const moeReview = sub.reviews.find((r: any) => r.context === "MOE_ANALYSIS");
                   const moaReview = sub.reviews.find((r: any) => r.context === "MOA_FINAL_QUOTE");
                   const decisionBadge = (d: string) => {
@@ -979,12 +867,14 @@ export default async function FtmDetailPage({
                             </a>
                           )}
                         </div>
-                        <div className="text-right">
-                          <div className="text-base font-bold text-slate-900 dark:text-white">
-                            {(Number(sub.amountHtCents) / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })} HT
+                        {showSensitiveStats && (
+                          <div className="text-right">
+                            <div className="text-base font-bold text-slate-900 dark:text-white">
+                              {(Number(sub.amountHtCents) / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })} HT
+                            </div>
+                            <div className="text-xs text-slate-400">Indice {sub.indice} — {new Date(sub.submittedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}</div>
                           </div>
-                          <div className="text-xs text-slate-400">Indice {sub.indice}</div>
-                        </div>
+                        )}
                       </div>
 
                       {/* MOE review context (read-only for MOA) */}

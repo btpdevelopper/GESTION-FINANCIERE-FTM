@@ -34,7 +34,11 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   
   // RLS & Middleware Lockdown: Deny-by-default for unauthenticated requests.
-  const isPublicRoute = path === "/login" || path.startsWith("/auth/callback");
+  const isPublicRoute =
+    path === "/login" ||
+    path.startsWith("/auth/callback") ||
+    path.startsWith("/api/inngest") ||
+    path.startsWith("/invite");
   
   if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();

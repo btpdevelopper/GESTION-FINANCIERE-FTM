@@ -15,7 +15,7 @@ import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
 import { can } from "@/lib/permissions/resolve";
 import { Capability } from "@prisma/client";
-import { sendInvitationEmail, sendFtmCancelledEmail } from "@/lib/email";
+import { inngest } from "@/inngest/client";
 import { uploadFtmDocument, deleteFtmDocument as deleteStorageFile } from "@/lib/storage";
 import { z } from "zod";
 import { validateFileMagicNumber } from "@/lib/validations/magic";
@@ -160,20 +160,20 @@ export async function createFtmAction(formData: FormData) {
     }
 
     for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if(file.size > 0) {
-            const result = await uploadFtmDocument(record.id, file, file.name, file.type);
-            const meta = documentsMeta.find(m => m.fileKey === file.name);
-            await tx.ftmDocument.create({
-              data: {
-                ftmId: record.id,
-                organizationId: meta?.organizationId || null,
-                name: file.name,
-                url: result.path,
-                uploadedById: user.id,
-              },
-            });
-        }
+      const file = files[i];
+      if (file.size > 0) {
+        const result = await uploadFtmDocument(record.id, file, file.name, file.type);
+        const meta = documentsMeta.find(m => m.fileKey === file.name);
+        await tx.ftmDocument.create({
+          data: {
+            ftmId: record.id,
+            organizationId: meta?.organizationId || null,
+            name: file.name,
+            url: result.path,
+            uploadedById: user.id,
+          },
+        });
+      }
     }
 
     return record;
@@ -201,7 +201,7 @@ export async function saveEtudesAction(input: {
 
   const existingFtm = await prisma.ftmRecord.findUnique({
     where: { id: input.ftmId },
-    select: { etudesDescription: true, moaEtudesDecision: true, phase: true }
+    select: { etudesDescription: true, moaEtudesDecision: true, phase: true, title: true, number: true }
   });
   if (existingFtm?.phase === "CANCELLED" || existingFtm?.phase === "ACCEPTED") {
     throw new Error("Le FTM est verrouillé, action impossible.");
@@ -209,6 +209,9 @@ export async function saveEtudesAction(input: {
   if (existingFtm?.etudesDescription && existingFtm.moaEtudesDecision !== "DECLINED") {
     throw new Error("Les études ont déjà été sauvegardées et ne peuvent plus être modifiées.");
   }
+
+  // Detect first-time save: description was empty before this call
+  const isFirstSubmission = !existingFtm?.etudesDescription && !!input.etudesDescription;
 
   await prisma.$transaction(async (tx) => {
     // 1. Update Global Etudes Description
@@ -232,6 +235,19 @@ export async function saveEtudesAction(input: {
       });
     }
   });
+
+  // Notify MOA on first études submission only
+  if (isFirstSubmission && existingFtm?.title && existingFtm?.number) {
+    await inngest.send({
+      name: "ftm/etudes.submitted",
+      data: {
+        projectId: input.projectId,
+        ftmId: input.ftmId,
+        ftmTitle: existingFtm.title,
+        ftmNumber: existingFtm.number,
+      },
+    });
+  }
 
   await audit(user.id, "FTM_ETUDES_SAVE", "FtmRecord", input.ftmId);
   revalidatePath(`/projects/${input.projectId}/ftms/${input.ftmId}`);
@@ -327,9 +343,17 @@ export async function inviteEtudesParticipantAction(input: {
     email: input.email,
   });
 
-  // Envoyer l'email avec le token généré
-  await sendInvitationEmail(input.email, raw, input.projectId, input.ftmId).catch((err) => {
-    console.error("Non bloquant: Erreur lors de l'envoi d'email 72h:", err);
+  // Fire Inngest event — durable delivery with automatic retry
+  await inngest.send({
+    name: "ftm/invitation.created",
+    data: {
+      toEmail: input.email,
+      token: raw,
+      projectId: input.projectId,
+      ftmId: input.ftmId,
+      ftmTitle: ftm.title,
+      ftmNumber: ftm.number,
+    },
   });
 
   revalidatePath(`/projects/${input.projectId}/ftms/${input.ftmId}`);
@@ -425,6 +449,19 @@ export async function moaDecideEtudesAction(input: {
     },
   });
 
+  // Notify MOE of the MOA decision
+  await inngest.send({
+    name: "ftm/etudes.decided",
+    data: {
+      projectId: input.projectId,
+      ftmId: input.ftmId,
+      ftmTitle: ftm.title,
+      ftmNumber: ftm.number,
+      decision: input.decision,
+      comment: input.comment ?? null,
+    },
+  });
+
   await audit(user.id, "FTM_MOA_ETUDES", "FtmRecord", input.ftmId, input);
   revalidatePath(`/projects/${input.projectId}/ftms/${input.ftmId}`);
   return { ok: true };
@@ -456,6 +493,17 @@ export async function openQuotingAction(input: {
   await prisma.ftmRecord.update({
     where: { id: input.ftmId },
     data: { phase: FtmPhase.QUOTING },
+  });
+
+  // Notify all concerned companies
+  await inngest.send({
+    name: "ftm/quoting.opened",
+    data: {
+      projectId: input.projectId,
+      ftmId: input.ftmId,
+      ftmTitle: ftm.title,
+      ftmNumber: ftm.number,
+    },
   });
 
   await audit(user.id, "FTM_OPEN_QUOTING", "FtmRecord", input.ftmId);
@@ -583,6 +631,30 @@ export async function submitQuoteAction(formData: FormData) {
     return sub;
   });
 
+  // Resolve FTM title + number for the notification
+  const ftmRecord = await prisma.ftmRecord.findUnique({
+    where: { id: ftmId },
+    select: { title: true, number: true },
+  });
+
+  const companyOrg = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { name: true },
+  });
+
+  await inngest.send({
+    name: "ftm/quote.submitted",
+    data: {
+      projectId,
+      ftmId,
+      ftmTitle: ftmRecord?.title ?? "",
+      ftmNumber: ftmRecord?.number ?? 0,
+      companyName: companyOrg?.name ?? organizationId,
+      amountHtCents: amountHtCents.toString(),
+      submittedAt: submission.submittedAt.toISOString(),
+    },
+  });
+
   await audit(user.id, "FTM_QUOTE_SUBMIT", "FtmQuoteSubmission", submission.id);
   revalidatePath(`/projects/${projectId}/ftms/${ftmId}`);
   return { ok: true };
@@ -696,6 +768,23 @@ export async function moeAnalyzeQuoteAction(input: {
     }
   });
 
+  // Notify the submitting company of the MOE decision
+  await inngest.send({
+    name: "ftm/quote.reviewed",
+    data: {
+      projectId: input.projectId,
+      ftmId: input.ftmId,
+      ftmTitle: ftm.title,
+      ftmNumber: ftm.number,
+      organizationId: sub.organizationId,
+      decision: input.decision,
+      comment: input.comment ?? null,
+    },
+  });
+
+  // If all accepted → the phase just moved to MOA_FINAL — no separate event for that
+  // ftm/accepted fires only when MOA also accepts in moaFinalQuoteAction
+
   await audit(user.id, "FTM_MOE_ANALYSIS", "FtmReview", input.quoteSubmissionId, input);
   revalidatePath(`/projects/${input.projectId}/ftms/${input.ftmId}`);
   return { ok: true };
@@ -787,6 +876,38 @@ export async function moaFinalQuoteAction(input: {
       });
     }
   });
+
+  // Re-read phase to determine which events to fire
+  const updatedFtm = await prisma.ftmRecord.findUnique({
+    where: { id: input.ftmId },
+    select: { phase: true, title: true, number: true },
+  });
+
+  await inngest.send({
+    name: "ftm/quote.moa-final",
+    data: {
+      projectId: input.projectId,
+      ftmId: input.ftmId,
+      ftmTitle: ftm.title,
+      ftmNumber: ftm.number,
+      organizationId: sub.organizationId,
+      decision: input.decision,
+      comment: input.comment ?? null,
+    },
+  });
+
+  // Fire accepted event if the FTM just closed
+  if (updatedFtm?.phase === FtmPhase.ACCEPTED) {
+    await inngest.send({
+      name: "ftm/accepted",
+      data: {
+        projectId: input.projectId,
+        ftmId: input.ftmId,
+        ftmTitle: ftm.title,
+        ftmNumber: ftm.number,
+      },
+    });
+  }
 
   await audit(user.id, "FTM_MOA_FINAL", "FtmReview", input.quoteSubmissionId, input);
   revalidatePath(`/projects/${input.projectId}/ftms/${input.ftmId}`);
@@ -985,23 +1106,17 @@ export async function cancelFtmAction(input: {
 
   await audit(user.id, "FTM_CANCEL", "FtmRecord", input.ftmId, { reason: input.reason });
 
-  // Notify participating companies
-  const orgIds = ftm.concernedOrgs.map(c => c.organizationId);
-  if (orgIds.length > 0) {
-    const notifyMembers = await prisma.projectMember.findMany({
-      where: { projectId: input.projectId, organizationId: { in: orgIds } },
-      include: { user: true }
-    });
-    for (const member of notifyMembers) {
-      if (member.user.email) {
-        try {
-          await sendFtmCancelledEmail(member.user.email, ftm.title, input.projectId, input.reason);
-        } catch (e) {
-          console.error("Failed to notify cancelled FTM to", member.user.email, e);
-        }
-      }
-    }
-  }
+  // Notify all concerned companies via Inngest (durable, retried)
+  await inngest.send({
+    name: "ftm/cancelled",
+    data: {
+      projectId: input.projectId,
+      ftmId: input.ftmId,
+      ftmTitle: ftm.title,
+      ftmNumber: ftm.number,
+      reason: input.reason,
+    },
+  });
 
   revalidatePath(`/projects/${input.projectId}/ftms/${input.ftmId}`);
   revalidatePath(`/projects/${input.projectId}/ftms`);
@@ -1119,6 +1234,24 @@ export async function createFtmDemandAction(formData: FormData) {
 
   await audit(user.id, "FTM_DEMAND_CREATED", "FtmDemand", demand.id, { isDraft });
 
+  // Notify MOE only when the demand is submitted (not while it's still a draft)
+  if (!isDraft) {
+    const initiatorOrg = await prisma.organization.findFirst({
+      where: { projectMembers: { some: { id: pm.id } } },
+      select: { name: true },
+    });
+    await inngest.send({
+      name: "ftm/demand.submitted",
+      data: {
+        projectId,
+        demandId: demand.id,
+        demandTitle: title,
+        companyName: initiatorOrg?.name ?? "Entreprise",
+        requestedDate: requestedMoeResponseDate ?? null,
+      },
+    });
+  }
+
   revalidatePath(`/projects/${projectId}/demands`);
   return demand;
 }
@@ -1137,7 +1270,7 @@ export async function updateFtmDemandDraftAction(formData: FormData) {
   const { demandId, projectId, title, isDraft, description, requestedMoeResponseDate, documentsMeta } = parseResult.data;
 
   const pm = await requireProjectMember(user.id, projectId);
-  
+
   const existing = await prisma.ftmDemand.findUnique({ where: { id: demandId } });
   if (!existing) throw new Error("Demande introuvable.");
   if (existing.initiatorProjectMemberId !== pm.id) throw new Error("Accès refusé.");
@@ -1216,6 +1349,16 @@ export async function rejectFtmDemandAction(projectId: string, demandId: string)
 
   await audit(user.id, "FTM_DEMAND_REJECTED", "FtmDemand", demandId, {});
 
+  await inngest.send({
+    name: "ftm/demand.rejected",
+    data: {
+      projectId,
+      demandId,
+      demandTitle: existing.title,
+      initiatorProjectMemberId: existing.initiatorProjectMemberId,
+    },
+  });
+
   revalidatePath(`/projects/${projectId}/demands`);
   return { ok: true };
 }
@@ -1239,7 +1382,7 @@ export async function deleteDemandDocumentAction(input: {
     throw new Error("Accès refusé.");
   }
   if (pm.role === ProjectRole.ENTREPRISE && demand.status !== "DRAFT") {
-     throw new Error("Impossible de supprimer des fichiers une fois la demande soumise.");
+    throw new Error("Impossible de supprimer des fichiers une fois la demande soumise.");
   }
 
   const doc = await prisma.ftmDocument.findFirst({

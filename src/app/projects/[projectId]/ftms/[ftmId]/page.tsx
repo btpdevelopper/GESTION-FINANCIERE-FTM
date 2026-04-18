@@ -77,6 +77,9 @@ export default async function FtmDetailPage({
   const isPastEtudes = ftm.phase !== FtmPhase.ETUDES;
   const hasDescription = !!ftm.etudesDescription;
   const isEtudesApproved = ftm.moaEtudesDecision === MoaEtudesDecision.APPROVED;
+  // Documents become read-only once the MOE has submitted for MOA review (mirrors EtudesLotsEditor.isLocked).
+  // The lock is only lifted if the MOA explicitly declines, sending it back for revision.
+  const isEtudesDocumentsLocked = isPastEtudes || (hasDescription && ftm.moaEtudesDecision !== "DECLINED");
 
   // ── Precompute ENTREPRISE quote eligibility ──
   const mySub = latestSubmissions.find((s) => s.organizationId === pm.organizationId);
@@ -283,10 +286,11 @@ export default async function FtmDetailPage({
                   Documents
                 </h3>
 
-                {/* Upload form — MOE/MOA during ETUDES only */}
+                {/* Upload form — MOE/MOA during ETUDES only, hidden once submitted for MOA review */}
                 {(pm.role === ProjectRole.MOE || pm.role === ProjectRole.MOA) &&
                   caps[Capability.EDIT_ETUDES] &&
-                  ftm.phase === FtmPhase.ETUDES && (
+                  ftm.phase === FtmPhase.ETUDES &&
+                  !isEtudesDocumentsLocked && (
                     <form
                       action={async (fd) => {
                         "use server";
@@ -344,7 +348,7 @@ export default async function FtmDetailPage({
                   const canDelete =
                     (pm.role === ProjectRole.MOE || pm.role === ProjectRole.MOA) &&
                     caps[Capability.EDIT_ETUDES] &&
-                    !isPastEtudes;
+                    !isEtudesDocumentsLocked;
 
                   const renderDoc = (doc: any) => (
                     <div
@@ -670,7 +674,8 @@ export default async function FtmDetailPage({
                           </div>
                         </form>
                       </div>
-                    ) : (
+                    ) : mySub ? (
+                      /* Company has a real submission on record — show confirmation */
                       <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-900/30">
                         <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
                           Devis soumis
@@ -687,6 +692,13 @@ export default async function FtmDetailPage({
                           )}
                         </div>
                       </div>
+                    ) : (
+                      /* Phase not open yet — quoting has not been unlocked */
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-900/30">
+                        <p className="text-sm text-slate-400">
+                          La phase de chiffrage n&apos;est pas encore ouverte. Vous serez notifié dès que le MOE l&apos;aura activée.
+                        </p>
+                      </div>
                     )}
                   </div>
                 )}
@@ -700,7 +712,9 @@ export default async function FtmDetailPage({
                 pmRole={pm.role}
                 pmId={pm.id}
                 capabilities={caps}
+                isQuotingOpen={isPastEtudes}
               />
+
             </div>
           ),
 

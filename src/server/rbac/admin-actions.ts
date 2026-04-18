@@ -34,6 +34,24 @@ export async function upsertCapabilityOverrideAction(input: {
     },
   });
 
-  revalidatePath(`/projects/${input.projectId}/admin/rbac`);
+  revalidatePath(`/projects/${input.projectId}/admin`);
+  return { ok: true };
+}
+
+export async function deleteCapabilityOverrideAction(input: {
+  projectId: string;
+  overrideId: string;
+}) {
+  const user = await getAuthUser();
+  if (!user?.id) throw new Error("Non authentifié.");
+  const pm = await requireProjectMember(user.id, input.projectId);
+  const ok = await can(pm.id, Capability.ADMIN_PROJECT_PERMISSIONS);
+  if (!ok) throw new Error("Accès administration refusé.");
+
+  await prisma.projectMemberCapabilityOverride.delete({
+    where: { id: input.overrideId },
+  });
+
+  revalidatePath(`/projects/${input.projectId}/admin`);
   return { ok: true };
 }

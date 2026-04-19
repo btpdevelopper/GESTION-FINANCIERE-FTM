@@ -2,15 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
-import { getSituation, getCompanyContractSettings } from "@/server/situations/situation-queries";
+import { getSituation, getCompanyContractSettings, getOrgMarcheTotalCents } from "@/server/situations/situation-queries";
 import { getFtmDocumentUrl } from "@/lib/storage";
-import { Capability, ProjectRole, SituationStatus } from "@prisma/client";
+import { Capability, ForecastStatus, ProjectRole, SituationStatus } from "@prisma/client";
 import { can } from "@/lib/permissions/resolve";
+import { prisma } from "@/lib/prisma";
 import { MoeReviewForm } from "./moe-review-form";
 import { MoaValidateForm } from "./moa-validate-form";
 import { UpdateDraftForm } from "./update-draft-form";
 import { SituationTimeline } from "./situation-timeline";
-import { CheckCircle, XCircle, AlertCircle, Clock, FileText } from "lucide-react";
+import { CheckCircle, XCircle, AlertCircle, Clock, FileText, AlertTriangle } from "lucide-react";
 
 function formatPeriod(periodLabel: string): string {
   if (/^\d{4}-\d{2}$/.test(periodLabel)) {
@@ -51,15 +52,67 @@ export default async function SituationDetailPage({
   // ENTREPRISE can only see their own org's situations
   if (pm.role === ProjectRole.ENTREPRISE && pm.organizationId !== orgId) notFound();
 
-  const [situation, contractSettings, canMoeReview, canMoaValidate, canSubmit] = await Promise.all([
-    getSituation(projectId, situationId),
-    getCompanyContractSettings(projectId, orgId),
-    can(pm.id, Capability.REVIEW_SITUATION_MOE),
-    can(pm.id, Capability.VALIDATE_SITUATION_MOA),
-    can(pm.id, Capability.SUBMIT_SITUATION),
-  ]);
+  const [situation, contractSettings, canMoeReview, canMoaValidate, canSubmit, marcheTotalBigInt] =
+    await Promise.all([
+      getSituation(projectId, situationId),
+      getCompanyContractSettings(projectId, orgId),
+      can(pm.id, Capability.REVIEW_SITUATION_MOE),
+      can(pm.id, Capability.VALIDATE_SITUATION_MOA),
+      can(pm.id, Capability.SUBMIT_SITUATION),
+      getOrgMarcheTotalCents(projectId, orgId),
+    ]);
 
   if (!situation || situation.organizationId !== orgId) notFound();
+
+  // Fetch approved forecast (all entries) + previous approved situation in parallel
+  const [approvedForecast, prevApprovedSituation] = await Promise.all([
+    contractSettings?.forecastWaived !== true
+      ? prisma.forecast.findFirst({
+          where: { projectId, organizationId: orgId, status: ForecastStatus.MOA_APPROVED },
+          orderBy: { indice: "desc" },
+          select: {
+            entries: {
+              select: { periodLabel: true, plannedAmountHtCents: true },
+              orderBy: { periodLabel: "asc" },
+            },
+          },
+        })
+      : Promise.resolve(null),
+    prisma.situationTravaux.findFirst({
+      where: {
+        projectId,
+        organizationId: orgId,
+        status: SituationStatus.MOA_APPROVED,
+        id: { not: situationId },
+      },
+      orderBy: { numero: "desc" },
+      select: { acceptedCumulativeHtCents: true, cumulativeAmountHtCents: true },
+    }),
+  ]);
+
+  // True when a forecast exists but has no entry for this period
+  const forecastMissing =
+    contractSettings?.forecastWaived !== true &&
+    approvedForecast !== null &&
+    !approvedForecast.entries.some((e) => e.periodLabel === situation.periodLabel);
+
+  const forecastEntries =
+    approvedForecast?.entries.map((e) => ({
+      periodLabel: e.periodLabel,
+      plannedAmountHtCents: Number(e.plannedAmountHtCents),
+    })) ?? [];
+  const forecastWaived = contractSettings?.forecastWaived ?? false;
+  const marcheTotalCents = Number(marcheTotalBigInt);
+  const previousCumulativeCents = prevApprovedSituation
+    ? Number(
+        prevApprovedSituation.acceptedCumulativeHtCents ??
+          prevApprovedSituation.cumulativeAmountHtCents
+      )
+    : 0;
+  const acceptedCumulativeCents =
+    situation.moeAdjustedAmountHtCents != null
+      ? Number(situation.moeAdjustedAmountHtCents)
+      : Number(situation.cumulativeAmountHtCents);
 
   // Resolve signed URL for the attached document (1-hour expiry)
   let documentSignedUrl: string | null = null;
@@ -103,6 +156,16 @@ export default async function SituationDetailPage({
         <p className="mt-1 text-sm text-slate-500">{situation.organization?.name}</p>
       </div>
 
+      {/* Hors-prévisionnel warning */}
+      {forecastMissing && (
+        <div className="flex items-start gap-2.5 rounded border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/20">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <p className="text-xs text-amber-800 dark:text-amber-300">
+            <strong>Hors prévisionnel</strong> — la période {formatPeriod(situation.periodLabel)} ne figure pas dans le prévisionnel approuvé de cette entreprise.
+          </p>
+        </div>
+      )}
+
       {/* Timeline */}
       <SituationTimeline
         status={situation.status}
@@ -126,6 +189,10 @@ export default async function SituationDetailPage({
               ? Number(situation.moeAdjustedAmountHtCents)
               : null
           }
+          forecastEntries={forecastEntries}
+          forecastWaived={forecastWaived}
+          marcheTotalCents={marcheTotalCents}
+          previousCumulativeCents={previousCumulativeCents}
         />
       )}
 
@@ -209,7 +276,7 @@ export default async function SituationDetailPage({
         </div>
       )}
 
-      {/* Financial snapshot (MOA_APPROVED or MOE/MOA during review) */}
+      {/* Financial snapshot (MOA_APPROVED) */}
       {showFinancials && situation.status === SituationStatus.MOA_APPROVED && (
         <div className="rounded-xl border border-green-200 bg-green-50 p-6 space-y-3 dark:border-green-900 dark:bg-green-950/30">
           <h2 className="font-semibold text-slate-900 dark:text-slate-100">Décompte financier validé</h2>
@@ -277,6 +344,11 @@ export default async function SituationDetailPage({
           penaltyType={contractSettings?.penaltyType ?? "NONE"}
           penaltyDailyRateCents={contractSettings?.penaltyDailyRateCents ? Number(contractSettings.penaltyDailyRateCents) : null}
           currentCumulativeHtCents={Number(situation.cumulativeAmountHtCents)}
+          periodLabel={situation.periodLabel}
+          forecastEntries={forecastEntries}
+          forecastWaived={forecastWaived}
+          marcheTotalCents={marcheTotalCents}
+          previousCumulativeCents={previousCumulativeCents}
         />
       )}
 
@@ -286,6 +358,12 @@ export default async function SituationDetailPage({
           projectId={projectId}
           situationId={situationId}
           orgId={orgId}
+          periodLabel={situation.periodLabel}
+          acceptedCumulativeCents={acceptedCumulativeCents}
+          forecastEntries={forecastEntries}
+          forecastWaived={forecastWaived}
+          marcheTotalCents={marcheTotalCents}
+          previousCumulativeCents={previousCumulativeCents}
         />
       )}
     </div>

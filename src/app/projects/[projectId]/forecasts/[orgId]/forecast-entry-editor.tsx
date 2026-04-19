@@ -41,6 +41,7 @@ export function ForecastEntryEditor({
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [pendingAction, setPendingAction] = useState<"save" | "submit" | null>(null);
   const [entries, setEntries] = useState<Entry[]>(initialEntries);
   const [correctionComment, setCorrectionComment] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -69,14 +70,21 @@ export function ForecastEntryEditor({
     );
   }
 
-  // Check for duplicate periods
-  const periods = entries.map((e) => e.periodLabel).filter(Boolean);
-  const hasDuplicates = periods.length !== new Set(periods).size;
+  // Per-row duplicate detection
+  const periodCounts = entries.reduce((acc, e) => {
+    if (e.periodLabel) acc.set(e.periodLabel, (acc.get(e.periodLabel) ?? 0) + 1);
+    return acc;
+  }, new Map<string, number>());
+  const duplicatedPeriods = new Set(
+    [...periodCounts.entries()].filter(([, n]) => n > 1).map(([p]) => p)
+  );
+  const hasDuplicates = duplicatedPeriods.size > 0;
 
   async function handleSave() {
     setError(null);
     setSuccess(null);
     if (hasDuplicates) { setError("Des périodes en double sont présentes."); return; }
+    setPendingAction("save");
     startTransition(async () => {
       try {
         await saveForecastEntriesAction({ projectId, entries });
@@ -84,6 +92,8 @@ export function ForecastEntryEditor({
         router.refresh();
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Erreur inconnue.");
+      } finally {
+        setPendingAction(null);
       }
     });
   }
@@ -96,6 +106,7 @@ export function ForecastEntryEditor({
       setError("Un commentaire est obligatoire lors d'une resoumission après correction.");
       return;
     }
+    setPendingAction("submit");
     startTransition(async () => {
       try {
         await submitForecastAction({
@@ -106,6 +117,8 @@ export function ForecastEntryEditor({
         router.refresh();
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Erreur inconnue.");
+      } finally {
+        setPendingAction(null);
       }
     });
   }
@@ -146,12 +159,23 @@ export function ForecastEntryEditor({
                       {formatPeriod(entry.periodLabel)}
                     </span>
                   ) : (
-                    <input
-                      type="month"
-                      value={entry.periodLabel}
-                      onChange={(e) => updatePeriod(i, e.target.value)}
-                      className="rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                    />
+                    <div>
+                      <input
+                        type="month"
+                        value={entry.periodLabel}
+                        onChange={(e) => updatePeriod(i, e.target.value)}
+                        className={`rounded border px-2 py-1 text-xs focus:outline-none focus:ring-1 dark:bg-slate-800 dark:text-slate-100 ${
+                          entry.periodLabel && duplicatedPeriods.has(entry.periodLabel)
+                            ? "border-red-300 bg-red-50 focus:ring-red-300 dark:border-red-700 dark:bg-red-950/20"
+                            : "border-slate-200 bg-white focus:ring-slate-400 dark:border-slate-700"
+                        }`}
+                      />
+                      {entry.periodLabel && duplicatedPeriods.has(entry.periodLabel) && (
+                        <p className="mt-0.5 text-[11px] text-red-600 dark:text-red-400">
+                          Période en double
+                        </p>
+                      )}
+                    </div>
                   )}
                 </td>
                 <td className="py-1.5 pr-3">
@@ -232,8 +256,8 @@ export function ForecastEntryEditor({
           onClick={handleSave}
           className="inline-flex items-center gap-1.5 rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50 transition-colors"
         >
-          {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          Enregistrer
+          {pendingAction === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {pendingAction === "save" ? "Enregistrement…" : "Enregistrer"}
         </button>
         <button
           type="button"
@@ -241,8 +265,8 @@ export function ForecastEntryEditor({
           onClick={handleSubmit}
           className="inline-flex items-center gap-1.5 rounded bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-600 disabled:opacity-50 transition-colors"
         >
-          {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          Soumettre au MOE
+          {pendingAction === "submit" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {pendingAction === "submit" ? "Envoi…" : "Soumettre au MOE"}
         </button>
       </div>
     </div>

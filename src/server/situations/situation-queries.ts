@@ -136,6 +136,109 @@ export async function getPastRefundedAmount(
   return result._sum.avanceTravauxRemboursementCents ?? BigInt(0);
 }
 
+/** Full financial dashboard data for all enterprises on a project — 4 queries, no N+1 */
+export async function getSituationsDashboardData(projectId: string) {
+  const user = await getAuthUser();
+  if (!user?.id) throw new Error("Non authentifié.");
+  await requireProjectMember(user.id, projectId);
+
+  const [members, allSituations, marcheTotals, ftmTotals] = await Promise.all([
+    prisma.projectMember.findMany({
+      where: { projectId, role: "ENTREPRISE" },
+      include: { organization: { select: { id: true, name: true } } },
+      distinct: ["organizationId"],
+    }),
+    prisma.situationTravaux.findMany({
+      where: { projectId },
+      orderBy: [{ organizationId: "asc" }, { numero: "asc" }],
+      select: {
+        id: true,
+        organizationId: true,
+        numero: true,
+        periodLabel: true,
+        status: true,
+        cumulativeAmountHtCents: true,
+        moeAdjustedAmountHtCents: true,
+        acceptedCumulativeHtCents: true,
+        periodNetBeforeDeductionsHtCents: true,
+        retenueGarantieAmountCents: true,
+        avanceTravauxRemboursementCents: true,
+        penaltyAmountCents: true,
+        netAmountHtCents: true,
+      },
+    }),
+    prisma.projectLotOrganization.groupBy({
+      by: ["organizationId"],
+      where: { projectLot: { projectId } },
+      _sum: { montantMarcheHtCents: true },
+    }),
+    prisma.ftmQuoteSubmission.groupBy({
+      by: ["organizationId"],
+      where: { ftm: { projectId, phase: "ACCEPTED" } },
+      _sum: { amountHtCents: true },
+    }),
+  ]);
+
+  const marcheByOrg = new Map(
+    marcheTotals.map((m) => [m.organizationId, Number(m._sum.montantMarcheHtCents ?? BigInt(0))])
+  );
+  const ftmByOrg = new Map(
+    ftmTotals.map((f) => [f.organizationId, Number(f._sum.amountHtCents ?? BigInt(0))])
+  );
+
+  const situationsByOrg = new Map<string, typeof allSituations>();
+  for (const s of allSituations) {
+    const arr = situationsByOrg.get(s.organizationId) ?? [];
+    arr.push(s);
+    situationsByOrg.set(s.organizationId, arr);
+  }
+
+  const seen = new Set<string>();
+  const orgs = members
+    .filter((m) => {
+      if (seen.has(m.organizationId)) return false;
+      seen.add(m.organizationId);
+      return true;
+    })
+    .map((m) => m.organization);
+
+  return orgs.map((org) => {
+    const situations = (situationsByOrg.get(org.id) ?? []).map((s) => ({
+      id: s.id,
+      numero: s.numero,
+      periodLabel: s.periodLabel,
+      status: s.status as string,
+      cumulativeAmountHtCents: Number(s.cumulativeAmountHtCents),
+      moeAdjustedAmountHtCents: s.moeAdjustedAmountHtCents != null ? Number(s.moeAdjustedAmountHtCents) : null,
+      acceptedCumulativeHtCents: s.acceptedCumulativeHtCents != null ? Number(s.acceptedCumulativeHtCents) : null,
+      periodNetBeforeDeductionsHtCents: s.periodNetBeforeDeductionsHtCents != null ? Number(s.periodNetBeforeDeductionsHtCents) : null,
+      retenueGarantieAmountCents: s.retenueGarantieAmountCents != null ? Number(s.retenueGarantieAmountCents) : null,
+      avanceTravauxRemboursementCents: s.avanceTravauxRemboursementCents != null ? Number(s.avanceTravauxRemboursementCents) : null,
+      penaltyAmountCents: s.penaltyAmountCents != null ? Number(s.penaltyAmountCents) : null,
+      netAmountHtCents: s.netAmountHtCents != null ? Number(s.netAmountHtCents) : null,
+    }));
+
+    const marcheBase = marcheByOrg.get(org.id) ?? 0;
+    const ftmValide = ftmByOrg.get(org.id) ?? 0;
+    const marcheActuel = marcheBase + ftmValide;
+
+    const approvedSituations = situations.filter((s) => s.status === "MOA_APPROVED");
+    const lastApproved = approvedSituations[approvedSituations.length - 1] ?? null;
+    const cumulatifApprouve = lastApproved?.acceptedCumulativeHtCents ?? 0;
+    const totalNetPaye = approvedSituations.reduce((sum, s) => sum + (s.netAmountHtCents ?? 0), 0);
+
+    return {
+      org: { id: org.id, name: org.name },
+      marcheBase,
+      ftmValide,
+      marcheActuel,
+      cumulatifApprouve,
+      totalNetPaye,
+      situations,
+    };
+  });
+}
+
 /** Cumulative amount from last MOA_APPROVED situation for this org */
 export async function getPreviousApprovedCumulative(
   projectId: string,

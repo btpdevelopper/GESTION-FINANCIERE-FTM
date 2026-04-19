@@ -89,10 +89,10 @@ export default async function ForecastDetailPage({
       {/* Header */}
       <div>
         <Link
-          href={`/projects/${projectId}/forecasts`}
+          href={isEntreprise ? `/projects/${projectId}` : `/projects/${projectId}/forecasts`}
           className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
         >
-          ← Prévisionnels
+          {isEntreprise ? "← Tableau de bord" : "← Prévisionnels"}
         </Link>
         <div className="mt-1.5 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">

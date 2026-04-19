@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
-import { getProjectForecasts } from "@/server/forecast/forecast-queries";
+import { getProjectForecasts, getForecastsDashboardData } from "@/server/forecast/forecast-queries";
 import { getProjectEnterpriseOrgs } from "@/server/situations/situation-queries";
+import { ForecastsDashboard } from "./_components/forecasts-dashboard";
 import { prisma } from "@/lib/prisma";
 import { Capability, ForecastStatus, ProjectRole } from "@prisma/client";
 import { can } from "@/lib/permissions/resolve";
@@ -43,11 +44,12 @@ export default async function ForecastsOverviewPage({
     redirect(`/projects/${projectId}/forecasts/${pm.organizationId}`);
   }
 
-  const [project, enterprises, forecasts, canWaive] = await Promise.all([
+  const [project, enterprises, forecasts, canWaive, dashboardData] = await Promise.all([
     prisma.project.findUnique({ where: { id: projectId }, select: { name: true } }),
     getProjectEnterpriseOrgs(projectId),
     getProjectForecasts(projectId),
     can(pm.id, Capability.REVIEW_FORECAST_MOE),
+    getForecastsDashboardData(projectId),
   ]);
   if (!project) notFound();
 
@@ -61,7 +63,7 @@ export default async function ForecastsOverviewPage({
   const forecastByOrg = new Map(forecasts.map((f) => [f.organizationId, f]));
 
   return (
-    <div className="max-w-3xl space-y-4">
+    <div className="max-w-6xl space-y-4">
       <div>
         <Link
           href={`/projects/${projectId}`}
@@ -77,12 +79,14 @@ export default async function ForecastsOverviewPage({
         </p>
       </div>
 
+      <ForecastsDashboard data={dashboardData} />
+
       {enterprises.length === 0 ? (
         <div className="rounded border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900">
           Aucune entreprise n&apos;est encore associée à ce projet.
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {enterprises.map((org) => {
             const forecast = forecastByOrg.get(org.id);
             const waived = waiverByOrg.get(org.id) ?? false;

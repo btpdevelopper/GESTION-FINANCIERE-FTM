@@ -2,11 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
-import { getSituationsForOrg } from "@/server/situations/situation-queries";
+import { getSituationsForOrg, getOrgMarcheTotalCents } from "@/server/situations/situation-queries";
 import { prisma } from "@/lib/prisma";
-import { Capability, ProjectRole, SituationStatus } from "@prisma/client";
+import { Capability, ForecastStatus, ProjectRole, SituationStatus } from "@prisma/client";
 import { can } from "@/lib/permissions/resolve";
-import { ChevronRight, CheckCircle, XCircle, AlertCircle, Clock } from "lucide-react";
+import { ChevronRight, CheckCircle, XCircle, AlertCircle, Clock, Lock } from "lucide-react";
 import { NewSituationForm } from "./new-situation-form";
 import { StatusBadge } from "@/components/ui/badge";
 
@@ -50,14 +50,36 @@ export default async function OrgSituationsPage({
 
   if (pm.role === ProjectRole.ENTREPRISE && pm.organizationId !== orgId) notFound();
 
-  const [project, org, situations, canSubmit] = await Promise.all([
+  const [project, org, situations, canSubmit, contractSettings, approvedForecast, marcheTotalBigInt] = await Promise.all([
     prisma.project.findUnique({ where: { id: projectId }, select: { name: true } }),
     prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
     getSituationsForOrg(projectId, orgId),
     can(pm.id, Capability.SUBMIT_SITUATION),
+    prisma.companyContractSettings.findUnique({
+      where: { projectId_organizationId: { projectId, organizationId: orgId } },
+      select: { forecastWaived: true },
+    }),
+    prisma.forecast.findFirst({
+      where: { projectId, organizationId: orgId, status: ForecastStatus.MOA_APPROVED },
+      orderBy: { indice: "desc" },
+      select: {
+        id: true,
+        entries: { select: { periodLabel: true, plannedAmountHtCents: true }, orderBy: { periodLabel: "asc" } },
+      },
+    }),
+    getOrgMarcheTotalCents(projectId, orgId),
   ]);
 
   if (!project || !org) notFound();
+  const marcheTotalCents = Number(marcheTotalBigInt);
+
+  const forecastOk = contractSettings?.forecastWaived === true || approvedForecast !== null;
+
+  // Last MOA_APPROVED cumulative — used to compute this-period delta in the form
+  const lastApproved = [...situations].filter((s) => s.status === SituationStatus.MOA_APPROVED).pop();
+  const previousCumulativeCents = lastApproved
+    ? Number(lastApproved.acceptedCumulativeHtCents ?? lastApproved.cumulativeAmountHtCents)
+    : 0;
 
   const hasOpenSituation = situations.some(
     (s) =>
@@ -68,6 +90,7 @@ export default async function OrgSituationsPage({
   const lastSituation = situations[situations.length - 1] ?? null;
   const canCreate =
     canSubmit &&
+    forecastOk &&
     !hasOpenSituation &&
     (lastSituation === null || lastSituation.status === SituationStatus.MOA_APPROVED);
 
@@ -75,10 +98,14 @@ export default async function OrgSituationsPage({
     <div className="max-w-3xl space-y-4">
       <div>
         <Link
-          href={`/projects/${projectId}/situations`}
+          href={
+            pm.role === ProjectRole.ENTREPRISE
+              ? `/projects/${projectId}`
+              : `/projects/${projectId}/situations`
+          }
           className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
         >
-          ← Retour aux entreprises
+          {pm.role === ProjectRole.ENTREPRISE ? "← Tableau de bord" : "← Retour aux entreprises"}
         </Link>
         <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
           Situations — {org.name}
@@ -86,7 +113,41 @@ export default async function OrgSituationsPage({
         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{project.name}</p>
       </div>
 
-      {canCreate && <NewSituationForm projectId={projectId} />}
+      {canSubmit && !forecastOk && (
+        <div className="flex items-start gap-2.5 rounded border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/20">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div>
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              Prévisionnel requis
+            </p>
+            <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+              Votre prévisionnel doit être validé par le MOA avant de pouvoir soumettre une situation de travaux.{" "}
+              <Link
+                href={`/projects/${projectId}/forecasts/${orgId}`}
+                className="underline hover:text-amber-900 dark:hover:text-amber-200"
+              >
+                Accéder au prévisionnel →
+              </Link>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {canCreate && (
+        <NewSituationForm
+          projectId={projectId}
+          forecastWaived={contractSettings?.forecastWaived ?? false}
+          forecastEntries={
+            approvedForecast?.entries.map((e) => ({
+              periodLabel: e.periodLabel,
+              plannedAmountHtCents: Number(e.plannedAmountHtCents),
+            })) ?? []
+          }
+          previousCumulativeCents={previousCumulativeCents}
+          marcheTotalCents={marcheTotalCents}
+          usedPeriods={situations.map((s) => s.periodLabel)}
+        />
+      )}
 
       {situations.length === 0 ? (
         <div className="rounded border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900">

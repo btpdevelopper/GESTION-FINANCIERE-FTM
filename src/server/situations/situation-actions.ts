@@ -50,7 +50,7 @@ const CreateSituationSchema = z.object({
   projectId: z.string().uuid(),
   periodLabel: z.string().min(1).max(100),
   cumulativeAmountHtCents: z.number().int().min(0),
-  documentUrl: z.string().url().optional().nullable(),
+  documentUrl: z.string().max(1000).optional().nullable(),
   documentName: z.string().max(255).optional().nullable(),
 });
 
@@ -124,7 +124,7 @@ const UpdateDraftSchema = z.object({
   projectId: z.string().uuid(),
   periodLabel: z.string().min(1).max(100),
   cumulativeAmountHtCents: z.number().int().min(0),
-  documentUrl: z.string().url().optional().nullable(),
+  documentUrl: z.string().max(1000).optional().nullable(),
   documentName: z.string().max(255).optional().nullable(),
   correctionComment: z.string().max(2000).optional().nullable(),
 });

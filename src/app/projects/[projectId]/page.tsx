@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMember } from "@/server/membership";
 import { getProjectPendingCounts } from "@/server/notifications/pending-counts";
+import { getOrgMarcheTotalCents } from "@/server/situations/situation-queries";
 import { FileEdit, FileText, Settings, BarChart2 } from "lucide-react";
 import { ProjectRole } from "@prisma/client";
 import { CountBadge } from "@/components/ui";
@@ -19,12 +20,18 @@ export default async function ProjectHomePage({
 
   const pm = await requireProjectMember(user.id, projectId);
 
-  const [project, counts] = await Promise.all([
+  const isEntreprise = pm.role === ProjectRole.ENTREPRISE;
+
+  const [project, counts, orgMarcheCents] = await Promise.all([
     prisma.project.findUnique({
       where: { id: projectId },
-      include: { baseContract: true },
+      // Only fetch the base contract for MOE/MOA — never expose full project financials to ENTREPRISE
+      include: isEntreprise ? {} : { baseContract: true },
     }),
     getProjectPendingCounts(projectId, pm),
+    isEntreprise && pm.organizationId
+      ? getOrgMarcheTotalCents(projectId, pm.organizationId)
+      : Promise.resolve(null),
   ]);
   if (!project) notFound();
 
@@ -73,7 +80,7 @@ export default async function ProjectHomePage({
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
           {project.name}
         </h1>
-        {project.baseContract && (
+        {"baseContract" in project && project.baseContract && (
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Marché de base :{" "}
             <strong className="text-slate-700 dark:text-slate-300">
@@ -85,6 +92,18 @@ export default async function ProjectHomePage({
               currency: "EUR",
             })}{" "}
             HT
+          </p>
+        )}
+        {isEntreprise && orgMarcheCents !== null && orgMarcheCents > BigInt(0) && (
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Votre marché :{" "}
+            <strong className="text-slate-700 dark:text-slate-300">
+              {(Number(orgMarcheCents) / 100).toLocaleString("fr-FR", {
+                style: "currency",
+                currency: "EUR",
+              })}{" "}
+              HT
+            </strong>
           </p>
         )}
       </div>

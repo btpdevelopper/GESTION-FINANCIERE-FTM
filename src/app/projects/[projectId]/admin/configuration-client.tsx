@@ -7,6 +7,7 @@ import { TabGeneral } from "./tab-general";
 import { TabFinance } from "./tab-finance";
 import { TabRbac } from "./tab-rbac";
 import { TabContrats } from "./tab-contrats";
+import { TabNav, TabNavButton } from "@/components/ui";
 
 type TabKey = "SETTINGS" | "FINANCE" | "RBAC" | "CONTRATS";
 
@@ -38,28 +39,21 @@ export function ConfigurationClient({
 
   return (
     <div className="mt-4">
-      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
-        {TABS.map(({ key, label, icon: Icon }) => {
-          const isActive = activeTab === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setActiveTab(key)}
-              className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
-                isActive
-                  ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
-                  : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:hover:text-slate-300"
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </button>
-          );
-        })}
-      </div>
+      <TabNav>
+        {TABS.map(({ key, label, icon: Icon }) => (
+          <TabNavButton
+            key={key}
+            active={activeTab === key}
+            onClick={() => setActiveTab(key)}
+            className="flex items-center gap-1.5"
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+          </TabNavButton>
+        ))}
+      </TabNav>
 
-      <div className="py-6">
+      <div className="py-5">
         {activeTab === "SETTINGS" && <TabGeneral project={project} />}
         {activeTab === "FINANCE" && <TabFinance projectId={project.id} lots={project.lots} />}
         {activeTab === "RBAC" && (

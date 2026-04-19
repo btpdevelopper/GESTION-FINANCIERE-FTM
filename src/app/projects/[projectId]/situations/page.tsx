@@ -5,27 +5,44 @@ import { requireProjectMember } from "@/server/membership";
 import { getProjectSituations, getProjectEnterpriseOrgs } from "@/server/situations/situation-queries";
 import { prisma } from "@/lib/prisma";
 import { ProjectRole, SituationStatus } from "@prisma/client";
-import { FileText, ChevronRight, Clock, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { FileText, Clock, CheckCircle, XCircle, AlertCircle, ChevronRight } from "lucide-react";
+import { StatusBadge } from "@/components/ui/badge";
 
 function formatPeriod(periodLabel: string): string {
   if (/^\d{4}-\d{2}$/.test(periodLabel)) {
     const [year, month] = periodLabel.split("-");
-    const label = new Date(parseInt(year), parseInt(month) - 1, 1)
-      .toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+    const label = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleDateString("fr-FR", {
+      month: "long",
+      year: "numeric",
+    });
     return label.charAt(0).toUpperCase() + label.slice(1);
   }
   return periodLabel;
 }
 
-const STATUS_CONFIG: Record<SituationStatus, { label: string; color: string; icon: React.ReactNode }> = {
-  DRAFT: { label: "Brouillon", color: "bg-slate-100 text-slate-600", icon: <Clock className="h-3.5 w-3.5" /> },
-  SUBMITTED: { label: "Soumis au MOE", color: "bg-blue-100 text-blue-700", icon: <Clock className="h-3.5 w-3.5" /> },
-  MOE_CORRECTION: { label: "En correction", color: "bg-amber-100 text-amber-700", icon: <AlertCircle className="h-3.5 w-3.5" /> },
-  MOE_APPROVED: { label: "Approuvé MOE", color: "bg-teal-100 text-teal-700", icon: <CheckCircle className="h-3.5 w-3.5" /> },
-  MOA_APPROVED: { label: "Validé MOA", color: "bg-green-100 text-green-700", icon: <CheckCircle className="h-3.5 w-3.5" /> },
-  MOE_REFUSED: { label: "Refusé MOE", color: "bg-red-100 text-red-700", icon: <XCircle className="h-3.5 w-3.5" /> },
-  MOA_REFUSED: { label: "Refusé MOA", color: "bg-red-100 text-red-700", icon: <XCircle className="h-3.5 w-3.5" /> },
+const STATUS_CONFIG: Record<SituationStatus, { label: string; icon: React.ReactNode }> = {
+  DRAFT: { label: "Brouillon", icon: <Clock className="h-3 w-3" /> },
+  SUBMITTED: { label: "Soumis au MOE", icon: <Clock className="h-3 w-3" /> },
+  MOE_CORRECTION: { label: "En correction", icon: <AlertCircle className="h-3 w-3" /> },
+  MOE_APPROVED: { label: "Approuvé MOE", icon: <CheckCircle className="h-3 w-3" /> },
+  MOA_APPROVED: { label: "Validé MOA", icon: <CheckCircle className="h-3 w-3" /> },
+  MOE_REFUSED: { label: "Refusé MOE", icon: <XCircle className="h-3 w-3" /> },
+  MOA_REFUSED: { label: "Refusé MOA", icon: <XCircle className="h-3 w-3" /> },
 };
+
+// Returns true when the current role must act on this situation status
+function isActionRequired(
+  status: SituationStatus,
+  role: ProjectRole,
+  orgId: string,
+  situationOrgId: string,
+): boolean {
+  if (role === ProjectRole.MOE) return status === SituationStatus.SUBMITTED;
+  if (role === ProjectRole.MOA) return status === SituationStatus.MOE_APPROVED;
+  if (role === ProjectRole.ENTREPRISE)
+    return status === SituationStatus.MOE_CORRECTION && situationOrgId === orgId;
+  return false;
+}
 
 export default async function SituationsProjectPage({
   params,
@@ -38,12 +55,14 @@ export default async function SituationsProjectPage({
 
   const pm = await requireProjectMember(user.id, projectId);
 
-  // ENTREPRISE users go directly to their org's situation list
   if (pm.role === ProjectRole.ENTREPRISE) {
     redirect(`/projects/${projectId}/situations/${pm.organizationId}`);
   }
 
-  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { name: true },
+  });
   if (!project) notFound();
 
   const [latestSituations, enterprises] = await Promise.all([
@@ -54,57 +73,77 @@ export default async function SituationsProjectPage({
   const situationByOrg = new Map(latestSituations.map((s) => [s.organizationId, s]));
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className="max-w-3xl space-y-4">
       <div>
-        <Link href={`/projects/${projectId}`} className="text-sm text-slate-600 underline">
-          ← Revenir au tableau de bord
+        <Link
+          href={`/projects/${projectId}`}
+          className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+        >
+          ← Tableau de bord
         </Link>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+        <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
           Situations de travaux
         </h1>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           Avancements mensuels par entreprise — {project.name}
         </p>
       </div>
 
       {enterprises.length === 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900">
+        <div className="rounded border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900">
           Aucune entreprise n&apos;est encore associée à ce projet.
         </div>
       ) : (
-        <div className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {enterprises.map((org) => {
             const latest = situationByOrg.get(org.id);
             const cfg = latest ? STATUS_CONFIG[latest.status] : null;
+            const actionRequired =
+              latest &&
+              isActionRequired(latest.status, pm.role, pm.organizationId, latest.organizationId);
+
             return (
               <Link
                 key={org.id}
                 href={`/projects/${projectId}/situations/${org.id}`}
-                className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                className={`flex flex-col rounded border bg-white p-4 transition-colors hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/60 ${
+                  actionRequired
+                    ? "border-l-4 border-amber-400 border-r-slate-200 border-t-slate-200 border-b-slate-200 dark:border-r-slate-800 dark:border-t-slate-800 dark:border-b-slate-800"
+                    : "border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700"
+                }`}
               >
-                <div className="flex items-center gap-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
-                    <FileText className="h-5 w-5 text-slate-600 dark:text-slate-300" />
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded bg-slate-100 dark:bg-slate-800">
+                    <FileText className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                   </div>
-                  <div>
-                    <p className="font-medium text-slate-900 dark:text-slate-100">{org.name}</p>
-                    {latest ? (
-                      <p className="text-sm text-slate-500">
-                        Situation n°{latest.numero} — {formatPeriod(latest.periodLabel)}
-                      </p>
-                    ) : (
-                      <p className="text-sm text-slate-400 italic">Aucune situation soumise</p>
+                  <div className="flex items-center gap-1.5">
+                    {actionRequired && (
+                      <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        À traiter
+                      </span>
+                    )}
+                    {cfg && (
+                      <StatusBadge status={latest!.status} label={cfg.label} icon={cfg.icon} />
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  {cfg && (
-                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${cfg.color}`}>
-                      {cfg.icon}
-                      {cfg.label}
-                    </span>
+                <div className="mt-3">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {org.name}
+                  </p>
+                  {latest ? (
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Situation n°{latest.numero} — {formatPeriod(latest.periodLabel)}
+                    </p>
+                  ) : (
+                    <p className="mt-0.5 text-xs italic text-slate-400">
+                      Aucune situation soumise
+                    </p>
                   )}
-                  <ChevronRight className="h-4 w-4 text-slate-400" />
+                </div>
+                <div className="mt-3 flex items-center gap-1 text-xs text-slate-400">
+                  Voir les situations
+                  <ChevronRight className="h-3 w-3" />
                 </div>
               </Link>
             );

@@ -32,6 +32,10 @@ export async function getSituation(projectId: string, situationId: string) {
       submittedBy: { include: { user: true } },
       moeReviewedBy: { include: { user: true } },
       moaValidatedBy: { include: { user: true } },
+      reviews: {
+        orderBy: { createdAt: "asc" },
+        include: { member: { include: { user: true } } },
+      },
     },
   });
 }

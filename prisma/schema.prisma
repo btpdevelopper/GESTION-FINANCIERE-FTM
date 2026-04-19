@@ -38,6 +38,7 @@ model Organization {
   quoteSubmissions   FtmQuoteSubmission[]
   situations         SituationTravaux[]
   contractSettings   CompanyContractSettings[]
+  forecasts          Forecast[]
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
   ftmDocuments       FtmDocument[]
@@ -67,6 +68,7 @@ model Project {
   permissionGroups ProjectPermissionGroup[]
   situations       SituationTravaux[]
   contractSettings CompanyContractSettings[]
+  forecasts        Forecast[]
   createdAt        DateTime                 @default(now())
   updatedAt        DateTime                 @updatedAt
 }
@@ -122,6 +124,11 @@ model ProjectMember {
   submittedSituations    SituationTravaux[]                @relation("SituationSubmitter")
   moeReviewedSituations  SituationTravaux[]                @relation("SituationMoeReviewer")
   moaValidatedSituations SituationTravaux[]                @relation("SituationMoaValidator")
+  situationReviews       SituationReview[]                 @relation("SituationReviewMember")
+  submittedForecasts     Forecast[]                        @relation("ForecastSubmitter")
+  moeReviewedForecasts   Forecast[]                        @relation("ForecastMoeReviewer")
+  moaValidatedForecasts  Forecast[]                        @relation("ForecastMoaValidator")
+  forecastReviews        ForecastReview[]                  @relation("ForecastReviewMember")
 
   @@unique([userId, projectId, organizationId])
   @@index([projectId])
@@ -167,6 +174,9 @@ enum Capability {
   REVIEW_SITUATION_MOE
   VALIDATE_SITUATION_MOA
   CONFIGURE_CONTRACT_SETTINGS
+  SUBMIT_FORECAST
+  REVIEW_FORECAST_MOE
+  VALIDATE_FORECAST_MOA
 }
 
 model ProjectPermissionGroupCapability {
@@ -411,6 +421,8 @@ model CompanyContractSettings {
   penaltyType           PenaltyType @default(NONE)
   penaltyDailyRateCents BigInt?
 
+  forecastWaived Boolean @default(false)
+
   project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -445,6 +457,9 @@ model SituationTravaux {
   penaltyDelayDays         Int?
   penaltyAmountCents       BigInt?
 
+  // Company correction response
+  correctionComment String? @db.Text
+
   // MOA validation
   moaStatus        String?
   moaValidatedById String?   @db.Uuid
@@ -464,10 +479,128 @@ model SituationTravaux {
   submittedBy    ProjectMember? @relation("SituationSubmitter", fields: [submittedById], references: [id])
   moeReviewedBy  ProjectMember? @relation("SituationMoeReviewer", fields: [moeReviewedById], references: [id])
   moaValidatedBy ProjectMember? @relation("SituationMoaValidator", fields: [moaValidatedById], references: [id])
+  reviews        SituationReview[]
 
   @@unique([projectId, organizationId, numero])
   @@index([projectId])
   @@index([organizationId])
+}
+
+// --- Situation review events ---
+
+enum SituationEventType {
+  SUBMITTED
+  MOE_REVIEWED
+  MOA_VALIDATED
+}
+
+model SituationReview {
+  id          String             @id @default(uuid()) @db.Uuid
+  situationId String             @db.Uuid
+  memberId    String             @db.Uuid
+  eventType   SituationEventType
+  createdAt   DateTime           @default(now())
+
+  // SUBMITTED
+  amountHtCents     BigInt?
+  documentName      String?
+  correctionComment String?      @db.Text
+
+  // MOE_REVIEWED
+  decision              String?
+  comment               String?  @db.Text
+  adjustedAmountHtCents BigInt?
+  penaltyAmountCents    BigInt?
+
+  // MOA_VALIDATED reuses decision + comment
+
+  situation SituationTravaux @relation(fields: [situationId], references: [id], onDelete: Cascade)
+  member    ProjectMember    @relation("SituationReviewMember", fields: [memberId], references: [id])
+
+  @@index([situationId, createdAt])
+}
+
+// --- Forecast (Prévisionnel) ---
+
+enum ForecastStatus {
+  DRAFT
+  SUBMITTED
+  MOE_CORRECTION
+  MOE_APPROVED
+  MOA_APPROVED
+  MOE_REFUSED
+  MOA_REFUSED
+}
+
+enum ForecastEventType {
+  SUBMITTED
+  MOE_REVIEWED
+  MOA_VALIDATED
+}
+
+model Forecast {
+  id             String         @id @default(uuid()) @db.Uuid
+  projectId      String         @db.Uuid
+  organizationId String         @db.Uuid
+  indice         Int
+  status         ForecastStatus @default(DRAFT)
+  createdAt      DateTime       @default(now())
+
+  submittedById     String?    @db.Uuid
+  submittedAt       DateTime?
+  correctionComment String?    @db.Text
+
+  moeStatus       String?
+  moeReviewedById String?    @db.Uuid
+  moeReviewedAt   DateTime?
+  moeComment      String?    @db.Text
+
+  moaStatus        String?
+  moaValidatedById String?    @db.Uuid
+  moaValidatedAt   DateTime?
+  moaComment       String?    @db.Text
+
+  entries ForecastEntry[]
+  reviews ForecastReview[]
+
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  submittedBy    ProjectMember? @relation("ForecastSubmitter",    fields: [submittedById],    references: [id])
+  moeReviewedBy  ProjectMember? @relation("ForecastMoeReviewer",  fields: [moeReviewedById],  references: [id])
+  moaValidatedBy ProjectMember? @relation("ForecastMoaValidator", fields: [moaValidatedById], references: [id])
+
+  @@unique([projectId, organizationId, indice])
+  @@index([projectId])
+  @@index([organizationId])
+}
+
+model ForecastEntry {
+  id                   String   @id @default(uuid()) @db.Uuid
+  forecastId           String   @db.Uuid
+  periodLabel          String
+  plannedAmountHtCents BigInt
+
+  forecast Forecast @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+
+  @@unique([forecastId, periodLabel])
+  @@index([forecastId])
+}
+
+model ForecastReview {
+  id         String            @id @default(uuid()) @db.Uuid
+  forecastId String            @db.Uuid
+  memberId   String            @db.Uuid
+  eventType  ForecastEventType
+  createdAt  DateTime          @default(now())
+
+  decision          String?
+  comment           String?  @db.Text
+  correctionComment String?  @db.Text
+
+  forecast Forecast      @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+  member   ProjectMember @relation("ForecastReviewMember", fields: [memberId], references: [id])
+
+  @@index([forecastId, createdAt])
 }
 
 // --- Audit ---

@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { Capability, SituationStatus } from "@prisma/client";
+import { Capability, ForecastStatus, SituationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
@@ -126,6 +126,7 @@ const UpdateDraftSchema = z.object({
   cumulativeAmountHtCents: z.number().int().min(0),
   documentUrl: z.string().url().optional().nullable(),
   documentName: z.string().max(255).optional().nullable(),
+  correctionComment: z.string().max(2000).optional().nullable(),
 });
 
 export async function updateSituationDraftAction(raw: unknown) {
@@ -149,6 +150,24 @@ export async function updateSituationDraftAction(raw: unknown) {
     throw new Error("Seules les situations en brouillon ou en correction peuvent être modifiées.");
   }
 
+  // Enforce period immutability in correction mode
+  if (
+    situation.status === SituationStatus.MOE_CORRECTION &&
+    data.periodLabel !== situation.periodLabel
+  ) {
+    throw new Error("La période ne peut pas être modifiée lors d'une correction.");
+  }
+
+  // When the MOE set an adjusted amount, proposing a different amount requires a comment
+  if (
+    situation.status === SituationStatus.MOE_CORRECTION &&
+    situation.moeAdjustedAmountHtCents !== null &&
+    BigInt(data.cumulativeAmountHtCents) !== situation.moeAdjustedAmountHtCents &&
+    !data.correctionComment?.trim()
+  ) {
+    throw new Error("Un commentaire est obligatoire lorsque vous proposez un montant différent de celui du MOE.");
+  }
+
   await prisma.situationTravaux.update({
     where: { id: data.situationId },
     data: {
@@ -156,6 +175,7 @@ export async function updateSituationDraftAction(raw: unknown) {
       cumulativeAmountHtCents: BigInt(data.cumulativeAmountHtCents),
       documentUrl: data.documentUrl ?? null,
       documentName: data.documentName ?? null,
+      correctionComment: data.correctionComment ?? null,
     },
   });
 
@@ -181,9 +201,15 @@ export async function submitSituationAction(raw: unknown) {
   const allowed = await can(member.id, Capability.SUBMIT_SITUATION);
   if (!allowed) throw new Error("Permission refusée.");
 
-  const situation = await prisma.situationTravaux.findFirst({
-    where: { id: data.situationId, projectId: data.projectId, organizationId: member.organizationId },
-  });
+  const [situation, contractSettings] = await Promise.all([
+    prisma.situationTravaux.findFirst({
+      where: { id: data.situationId, projectId: data.projectId, organizationId: member.organizationId },
+    }),
+    prisma.companyContractSettings.findUnique({
+      where: { projectId_organizationId: { projectId: data.projectId, organizationId: member.organizationId } },
+      select: { forecastWaived: true },
+    }),
+  ]);
   if (!situation) throw new Error("Situation introuvable.");
   if ((IMMUTABLE_STATUSES as readonly string[]).includes(situation.status)) throw new Error("Cette situation ne peut plus être modifiée.");
   if (
@@ -193,9 +219,33 @@ export async function submitSituationAction(raw: unknown) {
     throw new Error("Seules les situations en brouillon ou en correction peuvent être soumises.");
   }
 
+  // Forecast prerequisite: unless explicitly waived, a MOA_APPROVED forecast must exist
+  if (!contractSettings?.forecastWaived) {
+    const approvedForecast = await prisma.forecast.findFirst({
+      where: { projectId: data.projectId, organizationId: member.organizationId, status: ForecastStatus.MOA_APPROVED },
+      select: { id: true },
+    });
+    if (!approvedForecast) {
+      throw new Error(
+        "Votre prévisionnel doit être validé par le MOA avant de soumettre une situation de travaux. Contactez le MOE si votre projet ne nécessite pas de prévisionnel."
+      );
+    }
+  }
+
   await prisma.situationTravaux.update({
     where: { id: data.situationId },
     data: { status: SituationStatus.SUBMITTED, submittedById: member.id, submittedAt: new Date() },
+  });
+
+  await prisma.situationReview.create({
+    data: {
+      situationId: data.situationId,
+      memberId: member.id,
+      eventType: "SUBMITTED",
+      amountHtCents: situation.cumulativeAmountHtCents,
+      documentName: situation.documentName,
+      correctionComment: situation.correctionComment,
+    },
   });
 
   await audit(user.id, "SITUATION_SUBMITTED", data.situationId, {
@@ -279,6 +329,21 @@ export async function moeReviewSituationAction(raw: unknown) {
     },
   });
 
+  await prisma.situationReview.create({
+    data: {
+      situationId: data.situationId,
+      memberId: member.id,
+      eventType: "MOE_REVIEWED",
+      decision: data.decision,
+      comment: data.comment,
+      adjustedAmountHtCents:
+        data.moeAdjustedAmountHtCents != null
+          ? BigInt(data.moeAdjustedAmountHtCents)
+          : null,
+      penaltyAmountCents: penaltyAmount > BigInt(0) ? penaltyAmount : null,
+    },
+  });
+
   await audit(user.id, "SITUATION_MOE_REVIEWED", data.situationId, {
     decision: data.decision,
     comment: data.comment,
@@ -331,6 +396,15 @@ export async function moaValidateSituationAction(raw: unknown) {
         moaValidatedById: member.id,
         moaValidatedAt: new Date(),
         moaComment: data.comment ?? null,
+      },
+    });
+    await prisma.situationReview.create({
+      data: {
+        situationId: data.situationId,
+        memberId: member.id,
+        eventType: "MOA_VALIDATED",
+        decision: "REFUSED",
+        comment: data.comment ?? null,
       },
     });
     await audit(user.id, "SITUATION_MOA_VALIDATED", data.situationId, {
@@ -398,6 +472,16 @@ export async function moaValidateSituationAction(raw: unknown) {
       retenueGarantieAmountCents: snapshot.retenueGarantieAmountCents,
       avanceTravauxRemboursementCents: snapshot.avanceTravauxRemboursementCents,
       netAmountHtCents: snapshot.netAmountHtCents,
+    },
+  });
+
+  await prisma.situationReview.create({
+    data: {
+      situationId: data.situationId,
+      memberId: member.id,
+      eventType: "MOA_VALIDATED",
+      decision: "APPROVED",
+      comment: data.comment ?? null,
     },
   });
 

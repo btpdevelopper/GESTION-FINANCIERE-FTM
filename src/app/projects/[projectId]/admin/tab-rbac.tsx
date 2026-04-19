@@ -23,6 +23,11 @@ import { CAPABILITY_LABELS, labelForCapability } from "./capability-labels";
 import { ConfirmDialog, useConfirm } from "./confirm-dialog";
 import { InviteMemberModal } from "./invite-member-modal";
 import { EditMemberModal } from "./edit-member-modal";
+import { Button } from "@/components/ui/button";
+import { RoleBadge } from "@/components/ui/badge";
+import { Card, CardSubsection } from "@/components/ui/card";
+import { Select } from "@/components/ui/input";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type Override = { id: string; capability: Capability; allowed: boolean };
 
@@ -42,19 +47,6 @@ type Group = {
   capabilities: { id: string; capability: Capability }[];
 };
 
-function roleBadgeClasses(role: string): string {
-  switch (role) {
-    case "MOA":
-      return "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300";
-    case "MOE":
-      return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300";
-    case "ENTREPRISE":
-      return "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300";
-    default:
-      return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
-  }
-}
-
 export function TabRbac({
   projectId,
   members,
@@ -73,48 +65,39 @@ export function TabRbac({
   const [inviteOpen, setInviteOpen] = useState(false);
 
   return (
-    <div className="space-y-8 animate-in fade-in">
+    <div className="space-y-6">
       <section>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-indigo-500" />
-            <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+            <Users className="h-4 w-4 text-slate-500" />
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
               Membres du projet
             </h2>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+            <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-400">
               {members.length}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => setInviteOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:bg-indigo-500 hover:shadow-lg active:scale-95"
-          >
-            <UserPlus className="h-4 w-4" />
+          <Button onClick={() => setInviteOpen(true)} size="sm">
+            <UserPlus className="h-3.5 w-3.5" />
             Inviter un membre
-          </button>
+          </Button>
         </div>
 
         {members.length === 0 ? (
-          <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-10 text-center dark:border-slate-700 dark:bg-slate-900">
-            <Users className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-700" />
-            <h3 className="mt-3 text-sm font-semibold text-slate-900 dark:text-white">
-              Aucun membre
-            </h3>
-            <p className="mt-1 text-sm text-slate-500">
-              Commencez par inviter les membres de votre équipe projet.
-            </p>
-            <button
-              type="button"
-              onClick={() => setInviteOpen(true)}
-              className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:bg-indigo-500 hover:shadow-lg active:scale-95"
-            >
-              <UserPlus className="h-4 w-4" />
-              Inviter un membre
-            </button>
-          </div>
+          <EmptyState
+            dashed
+            icon={<Users className="h-8 w-8" />}
+            title="Aucun membre"
+            description="Commencez par inviter les membres de votre équipe projet."
+            action={
+              <Button size="sm" onClick={() => setInviteOpen(true)}>
+                <UserPlus className="h-3.5 w-3.5" />
+                Inviter un membre
+              </Button>
+            }
+          />
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {members.map((m) => (
               <MemberCard
                 key={m.id}
@@ -130,9 +113,9 @@ export function TabRbac({
       </section>
 
       <section>
-        <div className="mb-4 flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5 text-indigo-500" />
-          <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+        <div className="mb-3 flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-slate-500" />
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
             Groupes de permissions (référence)
           </h2>
         </div>
@@ -142,12 +125,9 @@ export function TabRbac({
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {groups.map((g) => (
-              <div
-                key={g.id}
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-              >
-                <div className="font-semibold text-slate-900 dark:text-white">{g.name}</div>
-                <ul className="mt-3 space-y-1.5">
+              <Card key={g.id} className="p-3">
+                <div className="text-sm font-medium text-slate-900 dark:text-white">{g.name}</div>
+                <ul className="mt-2 space-y-1">
                   {g.capabilities.map((c) => (
                     <li
                       key={c.id}
@@ -161,7 +141,7 @@ export function TabRbac({
                     </li>
                   ))}
                 </ul>
-              </div>
+              </Card>
             ))}
           </div>
         )}
@@ -250,18 +230,18 @@ function MemberCard({
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
+    <Card className="p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <div
-              className="truncate text-sm font-semibold text-slate-900 dark:text-white"
+              className="truncate text-sm font-medium text-slate-900 dark:text-white"
               title={member.user.name ?? member.user.email}
             >
               {member.user.name ?? member.user.email}
             </div>
             {isSelf && (
-              <span className="shrink-0 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+              <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                 Vous
               </span>
             )}
@@ -270,16 +250,10 @@ function MemberCard({
             <div className="truncate text-xs text-slate-500">{member.user.email}</div>
           )}
         </div>
-        <span
-          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${roleBadgeClasses(
-            member.role,
-          )}`}
-        >
-          {member.role}
-        </span>
+        <RoleBadge role={member.role} />
       </div>
 
-      <div className="mt-2 text-xs text-slate-500">
+      <div className="mt-1.5 text-xs text-slate-500">
         {member.organization.name}
         {member.permissionGroup && (
           <>
@@ -292,39 +266,41 @@ function MemberCard({
       </div>
 
       <div className="mt-3 flex gap-1.5">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
+          className="flex-1 justify-center border border-slate-200 dark:border-slate-700"
           onClick={() => setEditOpen(true)}
-          className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
         >
           <Pencil className="h-3 w-3" />
           Modifier
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="danger"
+          size="sm"
           onClick={askRemoveMember}
           disabled={isSelf}
           title={isSelf ? "Vous ne pouvez pas vous retirer vous-même." : "Retirer du projet"}
-          className="flex items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-red-50 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400"
+          className="disabled:hover:bg-red-50"
         >
           <Trash2 className="h-3 w-3" />
-        </button>
+        </Button>
       </div>
 
       {member.capabilityOverrides.length > 0 && (
-        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/40">
-          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
-            <Shield className="h-3.5 w-3.5" />
+        <CardSubsection className="mt-3 p-2.5">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300">
+            <Shield className="h-3 w-3" />
             Overrides actifs
           </div>
-          <ul className="space-y-1.5">
+          <ul className="space-y-1">
             {member.capabilityOverrides.map((o) => (
               <li key={o.id} className="flex items-start justify-between gap-2 text-xs">
                 <div className="flex items-start gap-1.5">
                   {o.allowed ? (
-                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                    <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" />
                   ) : (
-                    <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600" />
+                    <X className="mt-0.5 h-3 w-3 shrink-0 text-red-600" />
                   )}
                   <div>
                     <div
@@ -342,7 +318,7 @@ function MemberCard({
                 <button
                   type="button"
                   onClick={() => askDeleteOverride(o.id, o.capability)}
-                  className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                  className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
                   title="Retirer l'override"
                 >
                   <Trash2 className="h-3 w-3" />
@@ -350,56 +326,50 @@ function MemberCard({
               </li>
             ))}
           </ul>
-        </div>
+        </CardSubsection>
       )}
 
-      <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+      <div className="mt-3 border-t border-slate-100 pt-2.5 dark:border-slate-800">
         {!showAddOverride ? (
           <button
             type="button"
             onClick={() => setShowAddOverride(true)}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 py-2 text-xs font-medium text-slate-600 transition hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-indigo-950/30 dark:hover:text-indigo-400"
+            className="flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-slate-200 py-1.5 text-xs font-medium text-slate-500 transition hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-500"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-3 w-3" />
             Ajouter un override
           </button>
         ) : (
           <div className="space-y-2">
-            <select
+            <Select
               value={capability}
               onChange={(e) => setCapability(e.target.value as Capability)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             >
               {allCapabilities.map((c) => (
                 <option key={c} value={c}>
                   {CAPABILITY_LABELS[c]?.label ?? c} ({c})
                 </option>
               ))}
-            </select>
+            </Select>
             <div className="flex gap-2">
-              <select
+              <Select
                 value={allowed}
                 onChange={(e) => setAllowed(e.target.value as "true" | "false")}
-                className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                className="flex-1"
               >
                 <option value="true">Autoriser (Allow)</option>
                 <option value="false">Interdire (Deny)</option>
-              </select>
-              <button
-                type="button"
-                onClick={applyOverride}
-                disabled={pending}
-                className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-slate-800 active:scale-95 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-              >
+              </Select>
+              <Button size="sm" onClick={applyOverride} disabled={pending}>
                 {pending ? "..." : "Appliquer"}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={() => setShowAddOverride(false)}
-                className="rounded-lg px-2 py-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 Annuler
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -429,6 +399,6 @@ function MemberCard({
         onConfirm={confirm.state.onConfirm}
         onClose={confirm.close}
       />
-    </div>
+    </Card>
   );
 }

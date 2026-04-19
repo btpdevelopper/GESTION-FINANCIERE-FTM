@@ -4,6 +4,10 @@ import { useEffect, useState, useTransition } from "react";
 import { Plus, Trash2, X, Building2 } from "lucide-react";
 import { assignCompaniesToLotAction } from "@/server/projects/admin-config-actions";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Alert } from "@/components/ui/alert";
+import { CardSubsection } from "@/components/ui/card";
 
 type Row = { organizationName: string; amount: string };
 
@@ -63,11 +67,7 @@ export function AssignCompaniesDrawer({
 
     startTransition(async () => {
       try {
-        await assignCompaniesToLotAction({
-          projectId,
-          projectLotId: lotId,
-          rows: valid,
-        });
+        await assignCompaniesToLotAction({ projectId, projectLotId: lotId, rows: valid });
         router.refresh();
         onClose();
       } catch (err) {
@@ -78,29 +78,27 @@ export function AssignCompaniesDrawer({
 
   return (
     <>
-      <div
-        className="fixed inset-0 z-[998] bg-slate-900/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <div className="fixed right-0 top-0 z-[999] flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-800">
+      <div className="fixed inset-0 z-[998] bg-black/40" onClick={onClose} />
+      <div className="fixed right-0 top-0 z-[999] flex h-full w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
           <div>
             <div className="flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-indigo-500" />
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+              <Building2 className="h-4 w-4 text-slate-500" />
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
                 Assigner des entreprises
               </h2>
             </div>
-            <p className="mt-1 text-sm text-slate-500">
-              Lot : <span className="font-medium text-slate-700 dark:text-slate-300">{lotLabel}</span>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Lot :{" "}
+              <span className="font-medium text-slate-700 dark:text-slate-300">{lotLabel}</span>
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+            className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
@@ -110,44 +108,39 @@ export function AssignCompaniesDrawer({
           ))}
         </datalist>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
-            Ajoutez une ou plusieurs entreprises avec leur montant de marché HT.
-            Si une entreprise est déjà assignée à ce lot, son montant sera mis à jour.
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+            Ajoutez une ou plusieurs entreprises avec leur montant de marché HT. Si une entreprise
+            est déjà assignée à ce lot, son montant sera mis à jour.
           </p>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             {rows.map((row, i) => (
-              <div
-                key={i}
-                className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-800/30"
-              >
+              <CardSubsection key={i} className="p-3">
                 <div className="flex items-start gap-2">
                   <div className="flex-1 space-y-2">
                     <div>
                       <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
                         Raison sociale
                       </label>
-                      <input
+                      <Input
                         type="text"
                         list={`existing-orgs-${lotId}`}
                         value={row.organizationName}
                         onChange={(e) => updateRow(i, "organizationName", e.target.value)}
                         placeholder="Ex: SARL Dupont BTP"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                       />
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
                         Montant HT (€)
                       </label>
-                      <input
+                      <Input
                         type="text"
                         inputMode="decimal"
                         value={row.amount}
                         onChange={(e) => updateRow(i, "amount", e.target.value)}
                         placeholder="Ex: 50000"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                       />
                     </div>
                   </div>
@@ -155,49 +148,35 @@ export function AssignCompaniesDrawer({
                     type="button"
                     onClick={() => removeRow(i)}
                     disabled={rows.length === 1}
-                    className="mt-6 rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400 dark:hover:bg-red-950/30"
+                    className="mt-6 rounded p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-30 dark:hover:bg-red-950/30"
                     title="Retirer cette ligne"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
-              </div>
+              </CardSubsection>
             ))}
           </div>
 
           <button
             type="button"
             onClick={addRow}
-            className="mt-3 flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-indigo-950/30 dark:hover:text-indigo-400"
+            className="mt-3 flex items-center gap-1.5 rounded border border-dashed border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:hover:border-slate-500"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             Ajouter une entreprise
           </button>
 
-          {error && (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400">
-              {error}
-            </div>
-          )}
+          {error && <Alert variant="error" className="mt-3">{error}</Alert>}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-6 py-4 dark:border-slate-800">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={pending}
-            className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
+        <div className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
             Annuler
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={pending}
-            className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:bg-indigo-500 hover:shadow-lg active:scale-95 disabled:opacity-50"
-          >
+          </Button>
+          <Button onClick={submit} disabled={pending}>
             {pending ? "Enregistrement..." : "Enregistrer"}
-          </button>
+          </Button>
         </div>
       </div>
     </>

@@ -104,7 +104,12 @@ export default async function SituationDetailPage({
       </div>
 
       {/* Timeline */}
-      <SituationTimeline situation={situation} />
+      <SituationTimeline
+        status={situation.status}
+        createdAt={situation.createdAt}
+        orgName={situation.organization?.name ?? null}
+        reviews={situation.reviews}
+      />
 
       {/* Draft edit form */}
       {showDraftEdit && (
@@ -116,6 +121,11 @@ export default async function SituationDetailPage({
           currentAmountHtCents={Number(situation.cumulativeAmountHtCents)}
           currentDocumentName={situation.documentName}
           status={situation.status}
+          moeAdjustedAmountHtCents={
+            situation.moeAdjustedAmountHtCents != null
+              ? Number(situation.moeAdjustedAmountHtCents)
+              : null
+          }
         />
       )}
 

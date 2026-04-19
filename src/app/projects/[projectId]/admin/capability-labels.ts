@@ -69,6 +69,18 @@ export const CAPABILITY_LABELS: Record<Capability, { label: string; description:
     label: "Configurer les paramètres contractuels",
     description: "Peut définir la retenue de garantie, l'avance travaux et les pénalités par entreprise.",
   },
+  SUBMIT_FORECAST: {
+    label: "Soumettre un prévisionnel",
+    description: "Une entreprise peut créer et soumettre son plan de facturation mensuel.",
+  },
+  REVIEW_FORECAST_MOE: {
+    label: "Réviser un prévisionnel (MOE)",
+    description: "Peut approuver, renvoyer en correction ou refuser un prévisionnel soumis, et dispenser une entreprise de prévisionnel.",
+  },
+  VALIDATE_FORECAST_MOA: {
+    label: "Valider un prévisionnel (MOA)",
+    description: "Validation finale du MOA sur les prévisionnels approuvés par le MOE.",
+  },
 };
 
 export function labelForCapability(c: Capability): string {

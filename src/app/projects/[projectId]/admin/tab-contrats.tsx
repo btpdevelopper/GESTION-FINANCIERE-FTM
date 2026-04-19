@@ -3,6 +3,10 @@
 import { useState, useTransition } from "react";
 import { upsertCompanyContractSettingsAction } from "@/server/situations/contract-settings-actions";
 import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Alert } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
 
 type ContractSettings = {
   retenueGarantieActive: boolean;
@@ -29,38 +33,37 @@ export function TabContrats({
   enterprises: OrgWithSettings[];
 }) {
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(
-    enterprises[0]?.id ?? null
+    enterprises[0]?.id ?? null,
   );
 
   const org = enterprises.find((e) => e.id === selectedOrgId) ?? null;
 
   if (enterprises.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900">
+      <div className="rounded border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900">
         Aucune entreprise n&apos;est associée à ce projet.
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Configurez les paramètres contractuels financiers par entreprise (retenue de garantie, avance travaux, pénalités).
-        </p>
-      </div>
+    <div className="space-y-4">
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        Configurez les paramètres contractuels financiers par entreprise (retenue de garantie,
+        avance travaux, pénalités).
+      </p>
 
       {/* Org selector */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1.5">
         {enterprises.map((e) => (
           <button
             key={e.id}
             type="button"
             onClick={() => setSelectedOrgId(e.id)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+            className={`rounded px-3 py-1 text-sm font-medium transition-colors ${
               selectedOrgId === e.id
-                ? "bg-indigo-600 text-white"
-                : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                ? "bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900"
+                : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
             }`}
           >
             {e.name}
@@ -81,6 +84,9 @@ export function TabContrats({
   );
 }
 
+const SMALL_INPUT = "w-24 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
+const WIDE_INPUT = "w-48 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
+
 function ContractForm({
   projectId,
   organizationId,
@@ -98,23 +104,33 @@ function ContractForm({
 
   const s = initialSettings;
   const [retenueActive, setRetenueActive] = useState(s?.retenueGarantieActive ?? false);
-  const [retenuePercent, setRetenuePercent] = useState(s?.retenueGarantiePercent?.toString() ?? "5");
+  const [retenuePercent, setRetenuePercent] = useState(
+    s?.retenueGarantiePercent?.toString() ?? "5",
+  );
   const [avanceAmount, setAvanceAmount] = useState(
     s?.avanceTravauxAmountCents !== null && s?.avanceTravauxAmountCents !== undefined
       ? (s.avanceTravauxAmountCents / 100).toFixed(2)
-      : ""
+      : "",
   );
   const [refundTrigger, setRefundTrigger] = useState<"month" | "percent">(
-    s?.avanceTravauxRefundStartPercent !== null ? "percent" : "month"
+    s?.avanceTravauxRefundStartPercent !== null ? "percent" : "month",
   );
-  const [refundStartMonth, setRefundStartMonth] = useState(s?.avanceTravauxRefundStartMonth?.toString() ?? "");
-  const [refundStartPercent, setRefundStartPercent] = useState(s?.avanceTravauxRefundStartPercent?.toString() ?? "");
-  const [refundInstallments, setRefundInstallments] = useState(s?.avanceTravauxRefundInstallments?.toString() ?? "");
-  const [penaltyType, setPenaltyType] = useState<"NONE" | "FREE_AMOUNT" | "DAILY_RATE">(s?.penaltyType ?? "NONE");
+  const [refundStartMonth, setRefundStartMonth] = useState(
+    s?.avanceTravauxRefundStartMonth?.toString() ?? "",
+  );
+  const [refundStartPercent, setRefundStartPercent] = useState(
+    s?.avanceTravauxRefundStartPercent?.toString() ?? "",
+  );
+  const [refundInstallments, setRefundInstallments] = useState(
+    s?.avanceTravauxRefundInstallments?.toString() ?? "",
+  );
+  const [penaltyType, setPenaltyType] = useState<"NONE" | "FREE_AMOUNT" | "DAILY_RATE">(
+    s?.penaltyType ?? "NONE",
+  );
   const [dailyRate, setDailyRate] = useState(
     s?.penaltyDailyRateCents !== null && s?.penaltyDailyRateCents !== undefined
       ? (s.penaltyDailyRateCents / 100).toFixed(2)
-      : ""
+      : "",
   );
 
   async function handleSubmit(e: React.FormEvent) {
@@ -122,8 +138,12 @@ function ContractForm({
     setError(null);
     setSuccess(false);
 
-    const avanceAmountCents = avanceAmount ? Math.round(parseFloat(avanceAmount.replace(",", ".")) * 100) : null;
-    const dailyRateCents = dailyRate ? Math.round(parseFloat(dailyRate.replace(",", ".")) * 100) : null;
+    const avanceAmountCents = avanceAmount
+      ? Math.round(parseFloat(avanceAmount.replace(",", ".")) * 100)
+      : null;
+    const dailyRateCents = dailyRate
+      ? Math.round(parseFloat(dailyRate.replace(",", ".")) * 100)
+      : null;
 
     startTransition(async () => {
       try {
@@ -131,7 +151,8 @@ function ContractForm({
           projectId,
           organizationId,
           retenueGarantieActive: retenueActive,
-          retenueGarantiePercent: retenueActive && retenuePercent ? parseFloat(retenuePercent) : null,
+          retenueGarantiePercent:
+            retenueActive && retenuePercent ? parseFloat(retenuePercent) : null,
           avanceTravauxAmountCents: avanceAmountCents,
           avanceTravauxRefundStartMonth:
             avanceAmountCents && refundTrigger === "month" && refundStartMonth
@@ -154,158 +175,165 @@ function ContractForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-      <h3 className="font-semibold text-slate-900 dark:text-slate-100">{organizationName}</h3>
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <Card className="p-4">
+        <h3 className="mb-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
+          {organizationName}
+        </h3>
 
-      {error && <p className="rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>}
-      {success && <p className="rounded-lg bg-green-50 px-4 py-2.5 text-sm text-green-700">Paramètres enregistrés.</p>}
+        {error && <Alert variant="error" className="mb-3">{error}</Alert>}
+        {success && <Alert variant="success" className="mb-3">Paramètres enregistrés.</Alert>}
 
-      {/* Retenue de garantie */}
-      <section className="space-y-3">
-        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Retenue de garantie</h4>
-        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={retenueActive}
-            onChange={(e) => setRetenueActive(e.target.checked)}
-            className="rounded border-slate-300"
-          />
-          Applicable sur ce contrat
-        </label>
-        {retenueActive && (
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="0.01"
-              value={retenuePercent}
-              onChange={(e) => setRetenuePercent(e.target.value)}
-              className="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-            />
-            <span className="text-sm text-slate-500">% du montant de la période</span>
-          </div>
-        )}
-      </section>
-
-      {/* Avance travaux */}
-      <section className="space-y-3">
-        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Avance travaux</h4>
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="Montant avance (€)"
-            value={avanceAmount}
-            onChange={(e) => setAvanceAmount(e.target.value)}
-            className="w-48 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-          />
-          <span className="text-sm text-slate-500">€ HT (laisser vide si aucune)</span>
-        </div>
-
-        {avanceAmount && (
-          <div className="space-y-3 pl-4 border-l-2 border-slate-200 dark:border-slate-700">
-            <div className="flex gap-3">
-              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                <input
-                  type="radio"
-                  checked={refundTrigger === "month"}
-                  onChange={() => setRefundTrigger("month")}
-                  className="border-slate-300"
-                />
-                À partir de la situation n°
-              </label>
-              {refundTrigger === "month" && (
+        <div className="space-y-5">
+          {/* Retenue de garantie */}
+          <section className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Retenue de garantie
+            </h4>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={retenueActive}
+                onChange={(e) => setRetenueActive(e.target.checked)}
+                className="rounded border-slate-300"
+              />
+              Applicable sur ce contrat
+            </label>
+            {retenueActive && (
+              <div className="flex items-center gap-2">
                 <input
                   type="number"
-                  min="1"
-                  value={refundStartMonth}
-                  onChange={(e) => setRefundStartMonth(e.target.value)}
-                  className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={retenuePercent}
+                  onChange={(e) => setRetenuePercent(e.target.value)}
+                  className={SMALL_INPUT}
                 />
-              )}
-              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                <input
-                  type="radio"
-                  checked={refundTrigger === "percent"}
-                  onChange={() => setRefundTrigger("percent")}
-                  className="border-slate-300"
-                />
-                À partir de
-              </label>
-              {refundTrigger === "percent" && (
-                <>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    value={refundStartPercent}
-                    onChange={(e) => setRefundStartPercent(e.target.value)}
-                    className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                  />
-                  <span className="text-sm text-slate-500">% d&apos;avancement</span>
-                </>
-              )}
-            </div>
+                <span className="text-sm text-slate-500">% du montant de la période</span>
+              </div>
+            )}
+          </section>
+
+          {/* Avance travaux */}
+          <section className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Avance travaux
+            </h4>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-slate-500">Remboursé en</span>
               <input
                 type="number"
-                min="1"
-                value={refundInstallments}
-                onChange={(e) => setRefundInstallments(e.target.value)}
-                className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                min="0"
+                step="0.01"
+                placeholder="Montant avance (€)"
+                value={avanceAmount}
+                onChange={(e) => setAvanceAmount(e.target.value)}
+                className={WIDE_INPUT}
               />
-              <span className="text-sm text-slate-500">versements égaux</span>
+              <span className="text-sm text-slate-500">€ HT (laisser vide si aucune)</span>
             </div>
-          </div>
-        )}
-      </section>
 
-      {/* Pénalités */}
-      <section className="space-y-3">
-        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Pénalités</h4>
-        <div className="flex flex-wrap gap-3">
-          {(["NONE", "FREE_AMOUNT", "DAILY_RATE"] as const).map((t) => (
-            <label key={t} className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="radio"
-                checked={penaltyType === t}
-                onChange={() => setPenaltyType(t)}
-                className="border-slate-300"
-              />
-              {t === "NONE" && "Aucune"}
-              {t === "FREE_AMOUNT" && "Montant libre (saisi par MOE)"}
-              {t === "DAILY_RATE" && "Taux journalier"}
-            </label>
-          ))}
+            {avanceAmount && (
+              <div className="space-y-2 border-l-2 border-slate-200 pl-4 dark:border-slate-700">
+                <div className="flex flex-wrap gap-3">
+                  <label className="flex cursor-pointer items-center gap-1.5 text-sm">
+                    <input
+                      type="radio"
+                      checked={refundTrigger === "month"}
+                      onChange={() => setRefundTrigger("month")}
+                    />
+                    À partir de la situation n°
+                  </label>
+                  {refundTrigger === "month" && (
+                    <input
+                      type="number"
+                      min="1"
+                      value={refundStartMonth}
+                      onChange={(e) => setRefundStartMonth(e.target.value)}
+                      className={SMALL_INPUT}
+                    />
+                  )}
+                  <label className="flex cursor-pointer items-center gap-1.5 text-sm">
+                    <input
+                      type="radio"
+                      checked={refundTrigger === "percent"}
+                      onChange={() => setRefundTrigger("percent")}
+                    />
+                    À partir de
+                  </label>
+                  {refundTrigger === "percent" && (
+                    <>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value={refundStartPercent}
+                        onChange={(e) => setRefundStartPercent(e.target.value)}
+                        className={SMALL_INPUT}
+                      />
+                      <span className="text-sm text-slate-500">% d&apos;avancement</span>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-500">Remboursé en</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={refundInstallments}
+                    onChange={(e) => setRefundInstallments(e.target.value)}
+                    className={SMALL_INPUT}
+                  />
+                  <span className="text-sm text-slate-500">versements égaux</span>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Pénalités */}
+          <section className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Pénalités
+            </h4>
+            <div className="flex flex-wrap gap-3">
+              {(["NONE", "FREE_AMOUNT", "DAILY_RATE"] as const).map((t) => (
+                <label key={t} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    checked={penaltyType === t}
+                    onChange={() => setPenaltyType(t)}
+                  />
+                  {t === "NONE" && "Aucune"}
+                  {t === "FREE_AMOUNT" && "Montant libre (saisi par MOE)"}
+                  {t === "DAILY_RATE" && "Taux journalier"}
+                </label>
+              ))}
+            </div>
+            {penaltyType === "DAILY_RATE" && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Taux journalier (€/j)"
+                  value={dailyRate}
+                  onChange={(e) => setDailyRate(e.target.value)}
+                  className={WIDE_INPUT}
+                />
+                <span className="text-sm text-slate-500">€ / jour de retard</span>
+              </div>
+            )}
+          </section>
         </div>
-        {penaltyType === "DAILY_RATE" && (
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Taux journalier (€/j)"
-              value={dailyRate}
-              onChange={(e) => setDailyRate(e.target.value)}
-              className="w-48 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-            />
-            <span className="text-sm text-slate-500">€ / jour de retard</span>
-          </div>
-        )}
-      </section>
 
-      <button
-        type="submit"
-        disabled={isPending}
-        className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors"
-      >
-        {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-        {isPending ? "Enregistrement…" : "Enregistrer"}
-      </button>
+        <div className="mt-4 flex justify-end">
+          <Button type="submit" disabled={isPending}>
+            {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {isPending ? "Enregistrement…" : "Enregistrer"}
+          </Button>
+        </div>
+      </Card>
     </form>
   );
 }

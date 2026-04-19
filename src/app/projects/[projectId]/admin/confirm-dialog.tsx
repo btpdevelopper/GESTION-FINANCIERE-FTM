@@ -2,6 +2,8 @@
 
 import { AlertTriangle } from "lucide-react";
 import { useState, useTransition } from "react";
+import { ModalOverlay, ModalContainer } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
 
 export function ConfirmDialog({
   open,
@@ -25,30 +27,20 @@ export function ConfirmDialog({
   const [pending, startTransition] = useTransition();
   if (!open) return null;
 
-  const confirmClass =
-    tone === "danger"
-      ? "bg-red-600 hover:bg-red-700 text-white"
-      : "bg-indigo-600 hover:bg-indigo-500 text-white";
-
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+    <ModalOverlay>
+      <ModalContainer>
         <div className="mb-3 flex items-center gap-2">
-          {tone === "danger" && <AlertTriangle className="h-5 w-5 text-red-500" />}
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h3>
+          {tone === "danger" && <AlertTriangle className="h-4 w-4 text-red-500" />}
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{title}</h3>
         </div>
         <p className="mb-5 text-sm text-slate-600 dark:text-slate-400">{message}</p>
         <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={pending}
-            className="rounded-lg px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
+          <Button variant="ghost" disabled={pending} onClick={onClose}>
             {cancelLabel}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant={tone === "danger" ? "danger-solid" : "primary"}
             disabled={pending}
             onClick={() => {
               startTransition(async () => {
@@ -56,13 +48,12 @@ export function ConfirmDialog({
                 onClose();
               });
             }}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold shadow-md transition-all active:scale-95 hover:shadow-lg disabled:opacity-50 ${confirmClass}`}
           >
             {pending ? "Patientez..." : confirmLabel}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </ModalContainer>
+    </ModalOverlay>
   );
 }
 

@@ -23,7 +23,12 @@ Always run `npm run db:generate` after editing `prisma/schema.prisma`.
 
 **Stack:** Next.js 16 App Router · Prisma 6 · Supabase (Auth + Storage + PostgreSQL) · Inngest (events) · Resend (email) · Tailwind
 
-This is a **multi-tenant construction project financial tracking** app centered on the *FTM* (Fiche Technique de Marché) workflow — a document lifecycle that moves through phases: `ETUDES → QUOTING → ANALYSIS → MOA_FINAL`.
+This is a **multi-tenant construction project financial tracking** app centered on two main workflows:
+1. **FTM (Fiche Technique de Marché):** Document lifecycle (`ETUDES → QUOTING → ANALYSIS → MOA_FINAL`).
+2. **Situations de Travaux (Billing):** Monthly financial progress tracking and invoicing.
+   - **Lifecycle:** `DRAFT → SUBMITTED → MOE review (APPROVED/CORRECTION/REFUSED) → MOA review (APPROVED/REFUSED)`.
+   - **Constraint:** Strictly sequential. A new situation cannot be created if a previous one is pending. The previous month *must* be `MOA_APPROVED`.
+   - **Financials:** Mathematical snapshots (Retenue de garantie, Avance travaux, Pénalités) are computed dynamically but are strictly **frozen/saved** to the database only upon `MOA_APPROVED` to preserve historical accuracy.
 
 ### Auth & Middleware
 
@@ -36,7 +41,7 @@ This is a **multi-tenant construction project financial tracking** app centered 
 ### RBAC / Permissions
 
 - Three project roles: **MOA** (owner), **MOE** (technical lead), **ENTREPRISE** (contractor).
-- Capabilities (e.g. `VIEW_GLOBAL_FINANCE`, `CREATE_FTM`, `APPROVE_FTM_CREATION_MOE`) are resolved in `src/lib/permissions/resolve.ts`.
+- Capabilities (e.g. `VIEW_GLOBAL_FINANCE`, `CREATE_FTM`, `SUBMIT_SITUATION`, `REVIEW_SITUATION_MOE`, `VALIDATE_SITUATION_MOA`) are resolved in `src/lib/permissions/resolve.ts`.
 - **Deny-wins**: individual `ProjectMemberCapabilityOverride` denies beat group defaults.
 - Always call `resolveCapabilities(userId, projectId)` before performing sensitive mutations in server actions.
 
@@ -48,6 +53,10 @@ All files use `"use server"`. Key modules:
 - `projects/wizard-actions.ts` — Project creation/onboarding flow.
 - `rbac/admin-actions.ts` — Member invite, role/capability management.
 - `auth/reset-password-action.ts` — Password reset via Supabase.
+- `ftm/ftm-actions.ts` — FTM creation, phase transitions, quote handling, reviews.
+- `situations/situation-actions.ts` — Draft creation, submission, and MOE/MOA reviews for billing.
+- `situations/situation-queries.ts` — Aggregation functions for marché totals, approved FTM totals, and past refunds.
+- `lib/situations/calculations.ts` — Pure functions for complex deduction math (retenue, avances, penalties).
 
 ### Database Schema (Prisma)
 
@@ -57,6 +66,10 @@ Key models and relations:
 - `FtmDemand` → precedes FtmRecord creation; initiated by ENTREPRISE.
 - `Organization` — companies/contractors; ENTREPRISE members belong to one.
 - `AuditLog` — append-only action trail per project.
+- `Project` → has many `ProjectMember` (with role + capability overrides), `FtmRecord`, and `SituationTravaux`.
+- `Organization` — companies/contractors; has `CompanyContractSettings` which dictate billing deductions.
+- `SituationTravaux` — represents a monthly billing cycle. Contains both the raw submitted cumulative amounts and the finalized "snapshot" deductions frozen upon MOA approval.
+- `CompanyContractSettings` — parameters for "Retenue de garantie", "Avance de travaux", and "Pénalités de retard" per company per project.
 
 ### Event-Driven Notifications (Inngest)
 
@@ -69,7 +82,10 @@ Key models and relations:
 ### Document Storage
 
 - Supabase Storage bucket: `ftm-documents`. Utility: `src/lib/storage.ts`.
-- Path convention: `{ftmId}/{timestamp}-{sanitized-filename}`.
+- Path conventions: 
+  - FTMs: `{ftmId}/{timestamp}-{sanitized-filename}`
+  - Situations: `situations/{projectId}/{organizationId}/{timestamp}-{sanitized-filename}`
+- File validation uses magic number checks (not just MIME type) to prevent malicious uploads.
 - `GET /api/ftm-doc?path=...` is a **zero-trust proxy**: for ENTREPRISE users it checks that the document's `organizationId` matches the requester's org before returning a signed URL (1-hour expiry).
 - File validation uses magic number checks (not just MIME type) — see `ftm-actions.ts`.
 
@@ -100,6 +116,21 @@ INNGEST_SIGNING_KEY
 CRON_SECRET
 EMAIL_FROM
 ```
+
+## UI & Styling Guidelines (Tailwind CSS)
+This application is built for construction professionals and requires a highly information-dense, sober, and strictly professional Enterprise B2B SaaS interface. Avoid consumer-facing, "flashy" design patterns.
+
+When generating or refactoring UI components, strictly adhere to the following directives:
+
+Density & Spacing: Maximize screen real estate. Use tighter paddings and margins (e.g., p-3, p-4, gap-2). Avoid excessive whitespace and oversized containers.
+
+Typography: Default to smaller text sizes (e.g., text-sm for standard data and tables). Keep headings appropriately scaled so they structure the page without dominating the data.
+
+Shapes: Use sharp, serious corners. Replace large border radiuses (rounded-xl, rounded-2xl, rounded-full) with rounded-sm or rounded.
+
+Colors: Default to a muted, neutral palette (e.g., Tailwind's slate or zinc). Reserve bright, semantic colors only for critical actions or status indicators (e.g., a green badge for 'Approved', a red button for 'Refused').
+
+DRY Architecture (Don't Repeat Yourself): Do not repeat long strings of Tailwind classes across multiple files. Continually identify repeated UI patterns (Action Buttons, Status Badges, Data Cards, Form Inputs) and extract them into clean, reusable React components within a src/components/ui/ directory. Ensure these base components are flexible and accept standard props (like className and children).
 
 ## Demo Accounts (after `db:seed`)
 

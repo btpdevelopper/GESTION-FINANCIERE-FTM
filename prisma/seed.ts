@@ -146,6 +146,8 @@ async function main() {
     Capability.POST_FTM_CHAT,
     Capability.FINAL_VALIDATE_QUOTE_MOA,
     Capability.ADMIN_PROJECT_PERMISSIONS,
+    Capability.VALIDATE_SITUATION_MOA,
+    Capability.VALIDATE_FORECAST_MOA,
   ];
   const moeCaps: Capability[] = [
     Capability.VIEW_GLOBAL_FINANCE,
@@ -157,12 +159,17 @@ async function main() {
     Capability.SET_DEADLINES_AFTER_ETUDES,
     Capability.POST_FTM_CHAT,
     Capability.ANALYZE_QUOTE_MOE,
+    Capability.REVIEW_SITUATION_MOE,
+    Capability.REVIEW_FORECAST_MOE,
+    Capability.CONFIGURE_CONTRACT_SETTINGS,
   ];
   const entCaps: Capability[] = [
     Capability.VIEW_OWN_SCOPE,
     Capability.CREATE_FTM,
     Capability.SUBMIT_QUOTE,
     Capability.POST_FTM_CHAT,
+    Capability.SUBMIT_SITUATION,
+    Capability.SUBMIT_FORECAST,
   ];
 
   let gMoa = await prisma.projectPermissionGroup.findFirst({

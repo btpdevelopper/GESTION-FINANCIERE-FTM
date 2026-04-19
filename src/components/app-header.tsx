@@ -11,18 +11,21 @@ export function AppHeader({ email }: { email?: string | null }) {
   }
 
   return (
-    <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+    <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2.5 dark:border-slate-700 dark:bg-slate-900">
       <div className="flex items-center gap-4">
-        <Link href="/projects" className="font-medium text-slate-900 dark:text-slate-100">
+        <Link
+          href="/projects"
+          className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100"
+        >
           Gestion FTM
         </Link>
         {email && (
-          <span className="hidden text-sm text-slate-500 sm:inline">{email}</span>
+          <span className="hidden text-xs text-slate-400 sm:inline">{email}</span>
         )}
       </div>
       <button
         type="button"
-        className="text-sm text-slate-600 underline dark:text-slate-400"
+        className="text-xs text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
         onClick={() => signOut()}
       >
         Déconnexion

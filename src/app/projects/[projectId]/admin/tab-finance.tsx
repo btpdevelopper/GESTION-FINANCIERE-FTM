@@ -19,6 +19,11 @@ import {
 import { AssignCompaniesDrawer } from "./assign-companies-drawer";
 import { EditLotModal } from "./edit-lot-modal";
 import { ConfirmDialog, useConfirm } from "./confirm-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Alert } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type LotOrg = {
   id: string;
@@ -66,17 +71,19 @@ export function TabFinance({
     return Array.from(names).sort();
   }, [lots]);
 
-  const totalCents = useMemo(() => {
-    return lots.reduce(
-      (sum, l) =>
-        sum +
-        l.organizations.reduce(
-          (s, o) => s + BigInt(o.montantMarcheHtCents.toString()),
-          BigInt(0),
-        ),
-      BigInt(0),
-    );
-  }, [lots]);
+  const totalCents = useMemo(
+    () =>
+      lots.reduce(
+        (sum, l) =>
+          sum +
+          l.organizations.reduce(
+            (s, o) => s + BigInt(o.montantMarcheHtCents.toString()),
+            BigInt(0),
+          ),
+        BigInt(0),
+      ),
+    [lots],
+  );
 
   const toggleExpanded = (id: string) => {
     setExpanded((s) => {
@@ -94,11 +101,7 @@ export function TabFinance({
     }
     startTransition(async () => {
       try {
-        await addLotAction({
-          projectId,
-          label: newLabel,
-          description: newDescription,
-        });
+        await addLotAction({ projectId, label: newLabel, description: newDescription });
         setNewLabel("");
         setNewDescription("");
         setNewLotOpen(false);
@@ -123,107 +126,86 @@ export function TabFinance({
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in">
+    <div className="space-y-4">
       {/* Summary bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center gap-4">
-          <div className="rounded-xl bg-indigo-50 p-3 dark:bg-indigo-950/40">
-            <Layers className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="flex items-center gap-3">
+          <div className="rounded bg-slate-100 p-2 dark:bg-slate-800">
+            <Layers className="h-4 w-4 text-slate-600 dark:text-slate-400" />
           </div>
           <div>
-            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div className="text-xs text-slate-500">
               {lots.length} lot{lots.length > 1 ? "s" : ""} —{" "}
               {lots.reduce((n, l) => n + l.organizations.length, 0)} entreprise(s)
             </div>
-            <div className="text-lg font-semibold text-slate-900 dark:text-white">
+            <div className="text-sm font-semibold text-slate-900 dark:text-white">
               Total assigné : {formatEUR(totalCents)} HT
             </div>
           </div>
         </div>
-
-        <button
-          type="button"
-          onClick={() => setNewLotOpen((v) => !v)}
-          className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:bg-slate-800 hover:shadow-lg active:scale-95 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
-        >
-          <Plus className="h-4 w-4" />
+        <Button size="sm" onClick={() => setNewLotOpen((v) => !v)}>
+          <Plus className="h-3.5 w-3.5" />
           Nouveau lot
-        </button>
-      </div>
+        </Button>
+      </Card>
 
       {/* New lot inline panel */}
       {newLotOpen && (
-        <div className="animate-in slide-in-from-top-2 fade-in rounded-2xl border border-indigo-200 bg-indigo-50/40 p-5 dark:border-indigo-900/50 dark:bg-indigo-950/20">
-          <h3 className="mb-4 text-sm font-semibold text-slate-900 dark:text-white">
+        <Card className="p-4">
+          <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">
             Créer un nouveau lot
           </h3>
           <div className="grid gap-3 sm:grid-cols-2">
-            <input
+            <Input
               type="text"
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
               placeholder="Nom du lot (ex: Gros Œuvre)"
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             />
-            <input
+            <Input
               type="text"
               value={newDescription}
               onChange={(e) => setNewDescription(e.target.value)}
               placeholder="Description (optionnel)"
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
-          {newError && (
-            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400">
-              {newError}
-            </div>
-          )}
-          <div className="mt-4 flex justify-end gap-2">
-            <button
-              type="button"
+          {newError && <Alert variant="error" className="mt-3">{newError}</Alert>}
+          <div className="mt-3 flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 setNewLotOpen(false);
                 setNewError(null);
               }}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800"
             >
               Annuler
-            </button>
-            <button
-              type="button"
-              onClick={createLot}
-              disabled={pending}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition-all hover:bg-indigo-500 hover:shadow-lg active:scale-95 disabled:opacity-50"
-            >
+            </Button>
+            <Button size="sm" onClick={createLot} disabled={pending}>
               {pending ? "Création..." : "Créer le lot"}
-            </button>
+            </Button>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Empty state */}
       {lots.length === 0 && !newLotOpen && (
-        <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-10 text-center dark:border-slate-700 dark:bg-slate-900">
-          <Layers className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-700" />
-          <h3 className="mt-3 text-sm font-semibold text-slate-900 dark:text-white">
-            Aucun lot défini
-          </h3>
-          <p className="mt-1 text-sm text-slate-500">
-            Créez votre premier lot pour commencer à structurer le découpage financier.
-          </p>
-          <button
-            type="button"
-            onClick={() => setNewLotOpen(true)}
-            className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:bg-indigo-500 hover:shadow-lg active:scale-95"
-          >
-            <Plus className="h-4 w-4" />
-            Créer un lot
-          </button>
-        </div>
+        <EmptyState
+          dashed
+          icon={<Layers className="h-8 w-8" />}
+          title="Aucun lot défini"
+          description="Créez votre premier lot pour commencer à structurer le découpage financier."
+          action={
+            <Button size="sm" onClick={() => setNewLotOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Créer un lot
+            </Button>
+          }
+        />
       )}
 
       {/* Lots list */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {lots.map((lot) => {
           const isOpen = expanded.has(lot.id);
           const lotTotal = lot.organizations.reduce(
@@ -232,23 +214,20 @@ export function TabFinance({
           );
 
           return (
-            <div
-              key={lot.id}
-              className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all hover:shadow-md dark:border-slate-800 dark:bg-slate-900"
-            >
-              <div className="flex items-center justify-between gap-3 px-5 py-4">
+            <Card key={lot.id} className="overflow-hidden">
+              <div className="flex items-center justify-between gap-3 px-4 py-3">
                 <button
                   type="button"
                   onClick={() => toggleExpanded(lot.id)}
-                  className="flex flex-1 items-center gap-3 text-left"
+                  className="flex flex-1 items-center gap-2 text-left"
                 >
                   {isOpen ? (
-                    <ChevronDown className="h-4 w-4 text-slate-400" />
+                    <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
                   ) : (
-                    <ChevronRight className="h-4 w-4 text-slate-400" />
+                    <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
                   )}
                   <div>
-                    <div className="font-semibold text-slate-900 dark:text-white">
+                    <div className="text-sm font-medium text-slate-900 dark:text-white">
                       {lot.label}
                     </div>
                     {lot.description && (
@@ -257,7 +236,7 @@ export function TabFinance({
                   </div>
                 </button>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   <div className="text-right">
                     <div className="text-xs text-slate-500">
                       {lot.organizations.length} entreprise
@@ -267,59 +246,57 @@ export function TabFinance({
                       {formatEUR(lotTotal)}
                     </div>
                   </div>
-
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="border border-slate-200 dark:border-slate-700"
                     onClick={() => setDrawerLot(lot)}
-                    className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                   >
-                    <UserPlus className="h-3.5 w-3.5" />
+                    <UserPlus className="h-3 w-3" />
                     Assigner
-                  </button>
+                  </Button>
                   <button
                     type="button"
                     onClick={() => setEditLot(lot)}
-                    className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    className="rounded p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
                     title="Modifier le lot"
                   >
-                    <Pencil className="h-4 w-4" />
+                    <Pencil className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
 
               {isOpen && (
-                <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-3 dark:border-slate-800 dark:bg-slate-800/30">
+                <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-2 dark:border-slate-800 dark:bg-slate-800/30">
                   {lot.organizations.length === 0 ? (
-                    <p className="py-3 text-center text-sm italic text-slate-400">
+                    <p className="py-2 text-center text-xs italic text-slate-400">
                       Aucune entreprise assignée à ce lot.
                     </p>
                   ) : (
-                    <div className="divide-y divide-slate-200 dark:divide-slate-700/50">
+                    <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
                       {lot.organizations.map((lo) => (
                         <div
                           key={lo.id}
-                          className="flex items-center justify-between gap-3 py-2.5"
+                          className="flex items-center justify-between gap-3 py-2"
                         >
                           <div className="flex items-center gap-2">
-                            <Building2 className="h-4 w-4 text-slate-400" />
-                            <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                            <Building2 className="h-3.5 w-3.5 text-slate-400" />
+                            <span className="text-sm text-slate-800 dark:text-slate-200">
                               {lo.organization.name}
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
                               {formatEUR(lo.montantMarcheHtCents)}
                             </span>
                             <span className="text-xs text-slate-400">HT</span>
                             <button
                               type="button"
-                              onClick={() =>
-                                askRemoveOrg(lo.id, lo.organization.name, lot.label)
-                              }
-                              className="ml-2 rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                              onClick={() => askRemoveOrg(lo.id, lo.organization.name, lot.label)}
+                              className="ml-1 rounded p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
                               title="Retirer du lot"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Trash2 className="h-3 w-3" />
                             </button>
                           </div>
                         </div>
@@ -328,7 +305,7 @@ export function TabFinance({
                   )}
                 </div>
               )}
-            </div>
+            </Card>
           );
         })}
       </div>

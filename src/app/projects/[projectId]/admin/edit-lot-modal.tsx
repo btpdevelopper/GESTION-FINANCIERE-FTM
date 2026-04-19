@@ -1,10 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { X, Trash2, Pencil } from "lucide-react";
+import { Trash2, Pencil } from "lucide-react";
 import { updateLotAction, deleteLotAction } from "@/server/projects/admin-config-actions";
 import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "./confirm-dialog";
+import { ModalOverlay, ModalContainer, ModalHeader } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Alert } from "@/components/ui/alert";
 
 export function EditLotModal({
   projectId,
@@ -51,32 +55,23 @@ export function EditLotModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4">
-        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-white">
-              <Pencil className="h-5 w-5 text-indigo-500" />
-              Modifier le lot
-            </h3>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
+      <ModalOverlay>
+        <ModalContainer>
+          <ModalHeader
+            title="Modifier le lot"
+            icon={<Pencil className="h-4 w-4 text-slate-500" />}
+            onClose={onClose}
+          />
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
                 Nom du lot
               </label>
-              <input
+              <Input
                 type="text"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               />
             </div>
             <div>
@@ -87,48 +82,33 @@ export function EditLotModal({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
-                className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-slate-400 focus:ring-2 focus:ring-slate-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               />
             </div>
-
-            {error && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400">
-                {error}
-              </div>
-            )}
+            {error && <Alert variant="error">{error}</Alert>}
           </div>
 
-          <div className="mt-6 flex items-center justify-between">
-            <button
-              type="button"
+          <div className="mt-5 flex items-center justify-between">
+            <Button
+              variant="danger"
+              size="sm"
               onClick={() => setConfirmDelete(true)}
               disabled={pending}
-              className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400"
             >
               <Trash2 className="h-3.5 w-3.5" />
               Supprimer
-            </button>
+            </Button>
             <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={pending}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
-              >
+              <Button variant="ghost" onClick={onClose} disabled={pending}>
                 Annuler
-              </button>
-              <button
-                type="button"
-                onClick={save}
-                disabled={pending}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition-all hover:bg-indigo-500 hover:shadow-lg active:scale-95 disabled:opacity-50"
-              >
+              </Button>
+              <Button onClick={save} disabled={pending}>
                 {pending ? "Enregistrement..." : "Enregistrer"}
-              </button>
+              </Button>
             </div>
           </div>
-        </div>
-      </div>
+        </ModalContainer>
+      </ModalOverlay>
 
       <ConfirmDialog
         open={confirmDelete}

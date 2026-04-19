@@ -55,7 +55,8 @@ export const remindQuotes = inngest.createFunction(
         if (!freq || freq <= 0) continue;
 
         // Check if it's time for a reminder
-        const lastReminded = concerned.lastReminderAt ?? new Date(0);
+        const lastRemindedRaw = concerned.lastReminderAt ?? new Date(0);
+        const lastReminded = lastRemindedRaw instanceof Date ? lastRemindedRaw : new Date(lastRemindedRaw);
         const nextReminderAt = new Date(
           lastReminded.getTime() + freq * 24 * 60 * 60 * 1000
         );

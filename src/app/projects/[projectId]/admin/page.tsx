@@ -22,7 +22,7 @@ export default async function ProjectAdminPage({
   const isAdmin = await can(pm.id, Capability.ADMIN_PROJECT_PERMISSIONS);
   if (!isAdmin) {
     return (
-      <div className="rounded-md bg-red-50 p-4 text-sm text-red-600">
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400">
         Vous n’avez pas le droit d’administrer les paramètres de ce projet.
       </div>
     );
@@ -33,9 +33,15 @@ export default async function ProjectAdminPage({
     include: {
       baseContract: true,
       lots: {
-        include: { organizations: { include: { organization: true } } }
-      }
-    }
+        orderBy: { label: "asc" },
+        include: {
+          organizations: {
+            orderBy: { organization: { name: "asc" } },
+            include: { organization: true },
+          },
+        },
+      },
+    },
   });
 
   if (!project) notFound();
@@ -59,25 +65,76 @@ export default async function ProjectAdminPage({
 
   const allCapabilities = Object.values(Capability);
 
+  // Only suggest organizations already involved in this project (members or
+  // assigned to a lot). Admins can still type a new name to create one.
+  const projectOrgNames = new Set<string>();
+  for (const m of members) projectOrgNames.add(m.organization.name);
+  for (const lot of project.lots) {
+    for (const lo of lot.organizations) projectOrgNames.add(lo.organization.name);
+  }
+  const organizationNames = Array.from(projectOrgNames).sort((a, b) =>
+    a.localeCompare(b, "fr"),
+  );
+  const currentMemberId = pm.id;
+
+  // Load enterprise orgs with their contract settings for the Contrats tab
+  const enterpriseMembers = await prisma.projectMember.findMany({
+    where: { projectId, role: "ENTREPRISE" },
+    include: { organization: true },
+    distinct: ["organizationId"],
+  });
+
+  const contractSettingsList = await prisma.companyContractSettings.findMany({
+    where: { projectId },
+  });
+  const settingsByOrg = new Map(contractSettingsList.map((s) => [s.organizationId, s]));
+
+  const enterprises = enterpriseMembers.map((m) => {
+    const s = settingsByOrg.get(m.organizationId) ?? null;
+    return {
+      id: m.organization.id,
+      name: m.organization.name,
+      settings: s
+        ? {
+            retenueGarantieActive: s.retenueGarantieActive,
+            retenueGarantiePercent: s.retenueGarantiePercent !== null ? Number(s.retenueGarantiePercent) : null,
+            avanceTravauxAmountCents: s.avanceTravauxAmountCents !== null ? Number(s.avanceTravauxAmountCents) : null,
+            avanceTravauxRefundStartMonth: s.avanceTravauxRefundStartMonth,
+            avanceTravauxRefundStartPercent:
+              s.avanceTravauxRefundStartPercent !== null ? Number(s.avanceTravauxRefundStartPercent) : null,
+            avanceTravauxRefundInstallments: s.avanceTravauxRefundInstallments,
+            penaltyType: s.penaltyType as "NONE" | "FREE_AMOUNT" | "DAILY_RATE",
+            penaltyDailyRateCents: s.penaltyDailyRateCents !== null ? Number(s.penaltyDailyRateCents) : null,
+          }
+        : null,
+    };
+  });
+
   return (
     <div className="space-y-6">
       <div>
-        <Link href={`/projects/${projectId}`} className="text-sm text-slate-600 hover:underline">
+        <Link
+          href={`/projects/${projectId}`}
+          className="inline-flex items-center gap-1 text-sm text-slate-500 transition hover:text-slate-700 dark:hover:text-slate-300"
+        >
           ← Retour au projet
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-          Configuration du Projet
+        <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          Configuration du projet
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Gérez le découpage financier, la sécurité et les paramètres globaux.
+          Gérez les informations générales, le découpage financier et les permissions de l'équipe.
         </p>
       </div>
 
-      <ConfigurationClient 
+      <ConfigurationClient
         project={project}
         groups={groups}
         members={members}
         allCapabilities={allCapabilities}
+        organizationNames={organizationNames}
+        currentMemberId={currentMemberId}
+        enterprises={enterprises}
       />
     </div>
   );

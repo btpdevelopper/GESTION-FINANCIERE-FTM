@@ -37,6 +37,7 @@ model Organization {
   ftmLots            FtmLot[]
   quoteSubmissions   FtmQuoteSubmission[]
   situations         SituationTravaux[]
+  contractSettings   CompanyContractSettings[]
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
   ftmDocuments       FtmDocument[]
@@ -65,6 +66,7 @@ model Project {
   ftmDemands       FtmDemand[]
   permissionGroups ProjectPermissionGroup[]
   situations       SituationTravaux[]
+  contractSettings CompanyContractSettings[]
   createdAt        DateTime                 @default(now())
   updatedAt        DateTime                 @updatedAt
 }
@@ -115,8 +117,11 @@ model ProjectMember {
   cancelledFtms       FtmRecord[]                       @relation("FtmCanceller")
   chatMessages        FtmChatMessage[]
   reviews             FtmReview[]
-  capabilityOverrides ProjectMemberCapabilityOverride[]
-  rejectedDemands     FtmDemand[]                       @relation("FtmDemandRejectedBy")
+  capabilityOverrides    ProjectMemberCapabilityOverride[]
+  rejectedDemands        FtmDemand[]                       @relation("FtmDemandRejectedBy")
+  submittedSituations    SituationTravaux[]                @relation("SituationSubmitter")
+  moeReviewedSituations  SituationTravaux[]                @relation("SituationMoeReviewer")
+  moaValidatedSituations SituationTravaux[]                @relation("SituationMoaValidator")
 
   @@unique([userId, projectId, organizationId])
   @@index([projectId])
@@ -158,6 +163,10 @@ enum Capability {
   ANALYZE_QUOTE_MOE
   FINAL_VALIDATE_QUOTE_MOA
   ADMIN_PROJECT_PERMISSIONS
+  SUBMIT_SITUATION
+  REVIEW_SITUATION_MOE
+  VALIDATE_SITUATION_MOA
+  CONFIGURE_CONTRACT_SETTINGS
 }
 
 model ProjectPermissionGroupCapability {
@@ -368,21 +377,97 @@ model FtmReview {
   @@index([quoteSubmissionId])
 }
 
-// --- Situation travaux (minimal) ---
+// --- Situation travaux ---
+
+enum SituationStatus {
+  DRAFT
+  SUBMITTED
+  MOE_CORRECTION
+  MOE_APPROVED
+  MOA_APPROVED
+  MOE_REFUSED
+  MOA_REFUSED
+}
+
+enum PenaltyType {
+  NONE
+  FREE_AMOUNT
+  DAILY_RATE
+}
+
+model CompanyContractSettings {
+  id             String  @id @default(uuid()) @db.Uuid
+  projectId      String  @db.Uuid
+  organizationId String  @db.Uuid
+
+  retenueGarantieActive     Boolean  @default(false)
+  retenueGarantiePercent    Decimal? @db.Decimal(5, 2)
+
+  avanceTravauxAmountCents        BigInt?
+  avanceTravauxRefundStartMonth   Int?
+  avanceTravauxRefundStartPercent Decimal? @db.Decimal(5, 2)
+  avanceTravauxRefundInstallments Int?
+
+  penaltyType           PenaltyType @default(NONE)
+  penaltyDailyRateCents BigInt?
+
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, organizationId])
+  @@index([projectId])
+}
 
 model SituationTravaux {
-  id             String       @id @default(uuid()) @db.Uuid
-  projectId      String       @db.Uuid
-  organizationId String       @db.Uuid
+  id             String          @id @default(uuid()) @db.Uuid
+  projectId      String          @db.Uuid
+  organizationId String          @db.Uuid
+  numero         Int
   periodLabel    String
-  amountHtCents  BigInt
-  status         String       @default("DRAFT")
-  submittedAt    DateTime?
-  validatedAt    DateTime?
-  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  status         SituationStatus @default(DRAFT)
 
+  createdAt      DateTime        @default(now())
+
+  // Company submission
+  cumulativeAmountHtCents BigInt
+  documentUrl             String?
+  documentName            String?
+  submittedById           String?   @db.Uuid
+  submittedAt             DateTime?
+
+  // MOE review
+  moeStatus                String?
+  moeReviewedById          String?   @db.Uuid
+  moeReviewedAt            DateTime?
+  moeComment               String?   @db.Text
+  moeAdjustedAmountHtCents BigInt?
+  penaltyType              PenaltyType?
+  penaltyDelayDays         Int?
+  penaltyAmountCents       BigInt?
+
+  // MOA validation
+  moaStatus        String?
+  moaValidatedById String?   @db.Uuid
+  moaValidatedAt   DateTime?
+  moaComment       String?   @db.Text
+
+  // Financial snapshot (frozen at MOA approval)
+  acceptedCumulativeHtCents        BigInt?
+  previousCumulativeHtCents        BigInt?
+  periodNetBeforeDeductionsHtCents BigInt?
+  retenueGarantieAmountCents       BigInt?
+  avanceTravauxRemboursementCents  BigInt?
+  netAmountHtCents                 BigInt?
+
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  submittedBy    ProjectMember? @relation("SituationSubmitter", fields: [submittedById], references: [id])
+  moeReviewedBy  ProjectMember? @relation("SituationMoeReviewer", fields: [moeReviewedById], references: [id])
+  moaValidatedBy ProjectMember? @relation("SituationMoaValidator", fields: [moaValidatedById], references: [id])
+
+  @@unique([projectId, organizationId, numero])
   @@index([projectId])
+  @@index([organizationId])
 }
 
 // --- Audit ---

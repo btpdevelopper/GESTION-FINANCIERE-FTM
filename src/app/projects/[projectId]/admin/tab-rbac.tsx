@@ -1,21 +1,35 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Capability } from "@prisma/client";
-import { Users, Shield, Check, X, Trash2, Plus, ShieldCheck } from "lucide-react";
+import { Capability, ProjectRole } from "@prisma/client";
+import {
+  Users,
+  Shield,
+  Check,
+  X,
+  Trash2,
+  Plus,
+  ShieldCheck,
+  UserPlus,
+  Pencil,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   upsertCapabilityOverrideAction,
   deleteCapabilityOverrideAction,
+  removeProjectMemberAction,
 } from "@/server/rbac/admin-actions";
 import { CAPABILITY_LABELS, labelForCapability } from "./capability-labels";
 import { ConfirmDialog, useConfirm } from "./confirm-dialog";
+import { InviteMemberModal } from "./invite-member-modal";
+import { EditMemberModal } from "./edit-member-modal";
 
 type Override = { id: string; capability: Capability; allowed: boolean };
 
 type Member = {
   id: string;
-  role: string;
+  role: ProjectRole;
+  permissionGroupId: string | null;
   user: { name: string | null; email: string };
   organization: { name: string };
   permissionGroup: { name: string } | null;
@@ -46,20 +60,39 @@ export function TabRbac({
   members,
   groups,
   allCapabilities,
+  organizationNames,
+  currentMemberId,
 }: {
   projectId: string;
   members: Member[];
   groups: Group[];
   allCapabilities: Capability[];
+  organizationNames: string[];
+  currentMemberId: string | null;
 }) {
+  const [inviteOpen, setInviteOpen] = useState(false);
+
   return (
     <div className="space-y-8 animate-in fade-in">
       <section>
-        <div className="mb-4 flex items-center gap-2">
-          <Users className="h-5 w-5 text-indigo-500" />
-          <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-            Membres & Overrides
-          </h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-indigo-500" />
+            <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+              Membres du projet
+            </h2>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+              {members.length}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setInviteOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:bg-indigo-500 hover:shadow-lg active:scale-95"
+          >
+            <UserPlus className="h-4 w-4" />
+            Inviter un membre
+          </button>
         </div>
 
         {members.length === 0 ? (
@@ -69,8 +102,16 @@ export function TabRbac({
               Aucun membre
             </h3>
             <p className="mt-1 text-sm text-slate-500">
-              Les membres du projet apparaîtront ici une fois invités.
+              Commencez par inviter les membres de votre équipe projet.
             </p>
+            <button
+              type="button"
+              onClick={() => setInviteOpen(true)}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:bg-indigo-500 hover:shadow-lg active:scale-95"
+            >
+              <UserPlus className="h-4 w-4" />
+              Inviter un membre
+            </button>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -80,6 +121,8 @@ export function TabRbac({
                 projectId={projectId}
                 member={m}
                 allCapabilities={allCapabilities}
+                groups={groups}
+                isSelf={m.id === currentMemberId}
               />
             ))}
           </div>
@@ -123,6 +166,14 @@ export function TabRbac({
           </div>
         )}
       </section>
+
+      <InviteMemberModal
+        projectId={projectId}
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        organizationNames={organizationNames}
+        groups={groups}
+      />
     </div>
   );
 }
@@ -131,28 +182,37 @@ function MemberCard({
   projectId,
   member,
   allCapabilities,
+  groups,
+  isSelf,
 }: {
   projectId: string;
   member: Member;
   allCapabilities: Capability[];
+  groups: Group[];
+  isSelf: boolean;
 }) {
   const [showAddOverride, setShowAddOverride] = useState(false);
   const [capability, setCapability] = useState<Capability>(allCapabilities[0]);
   const [allowed, setAllowed] = useState<"true" | "false">("false");
+  const [editOpen, setEditOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
   const confirm = useConfirm();
 
   const applyOverride = () => {
     startTransition(async () => {
-      await upsertCapabilityOverrideAction({
-        projectId,
-        targetProjectMemberId: member.id,
-        capability,
-        allowed: allowed === "true",
-      });
-      router.refresh();
-      setShowAddOverride(false);
+      try {
+        await upsertCapabilityOverrideAction({
+          projectId,
+          targetProjectMemberId: member.id,
+          capability,
+          allowed: allowed === "true",
+        });
+        router.refresh();
+        setShowAddOverride(false);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : String(err));
+      }
     });
   };
 
@@ -169,15 +229,42 @@ function MemberCard({
     });
   };
 
+  const askRemoveMember = () => {
+    confirm.ask({
+      title: "Retirer ce membre du projet ?",
+      message: `${member.user.name ?? member.user.email} perdra immédiatement l'accès au projet. Les FTM, messages et devis qu'il/elle a créés seront conservés mais leur auteur deviendra anonyme. Cette action est irréversible.`,
+      confirmLabel: "Retirer du projet",
+      tone: "danger",
+      onConfirm: async () => {
+        try {
+          await removeProjectMemberAction({
+            projectId,
+            targetProjectMemberId: member.id,
+          });
+          router.refresh();
+        } catch (err) {
+          alert(err instanceof Error ? err.message : String(err));
+        }
+      },
+    });
+  };
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div
-            className="truncate text-sm font-semibold text-slate-900 dark:text-white"
-            title={member.user.name ?? member.user.email}
-          >
-            {member.user.name ?? member.user.email}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <div
+              className="truncate text-sm font-semibold text-slate-900 dark:text-white"
+              title={member.user.name ?? member.user.email}
+            >
+              {member.user.name ?? member.user.email}
+            </div>
+            {isSelf && (
+              <span className="shrink-0 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+                Vous
+              </span>
+            )}
           </div>
           {member.user.name && (
             <div className="truncate text-xs text-slate-500">{member.user.email}</div>
@@ -202,6 +289,26 @@ function MemberCard({
             </span>
           </>
         )}
+      </div>
+
+      <div className="mt-3 flex gap-1.5">
+        <button
+          type="button"
+          onClick={() => setEditOpen(true)}
+          className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+        >
+          <Pencil className="h-3 w-3" />
+          Modifier
+        </button>
+        <button
+          type="button"
+          onClick={askRemoveMember}
+          disabled={isSelf}
+          title={isSelf ? "Vous ne pouvez pas vous retirer vous-même." : "Retirer du projet"}
+          className="flex items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-red-50 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
       </div>
 
       {member.capabilityOverrides.length > 0 && (
@@ -297,6 +404,21 @@ function MemberCard({
           </div>
         )}
       </div>
+
+      <EditMemberModal
+        projectId={projectId}
+        member={{
+          id: member.id,
+          role: member.role,
+          permissionGroupId: member.permissionGroupId,
+          user: member.user,
+          organization: member.organization,
+        }}
+        groups={groups}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        isSelf={isSelf}
+      />
 
       <ConfirmDialog
         open={confirm.state.open}

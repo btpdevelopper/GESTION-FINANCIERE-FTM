@@ -53,6 +53,22 @@ export const CAPABILITY_LABELS: Record<Capability, { label: string; description:
     label: "Administrer le projet",
     description: "Accès complet à la configuration, au découpage financier et aux permissions.",
   },
+  SUBMIT_SITUATION: {
+    label: "Soumettre une situation de travaux",
+    description: "Une entreprise peut déposer et soumettre une situation d'avancement mensuelle.",
+  },
+  REVIEW_SITUATION_MOE: {
+    label: "Réviser une situation (MOE)",
+    description: "Peut approuver, renvoyer en correction ou refuser une situation soumise.",
+  },
+  VALIDATE_SITUATION_MOA: {
+    label: "Valider une situation (MOA)",
+    description: "Validation finale du MOA sur les situations approuvées par le MOE.",
+  },
+  CONFIGURE_CONTRACT_SETTINGS: {
+    label: "Configurer les paramètres contractuels",
+    description: "Peut définir la retenue de garantie, l'avance travaux et les pénalités par entreprise.",
+  },
 };
 
 export function labelForCapability(c: Capability): string {

@@ -255,7 +255,8 @@ export const sendQuoteReviewedNotification = inngest.createFunction(
 
     if (recipients.length === 0) return { sent: 0 };
 
-    const decisionLabel = { ACCEPT: "accepté", RESEND_CORRECTION: "renvoyé pour correction", DECLINE: "refusé" }[decision];
+    const decisionLabels: Record<string, string> = { ACCEPT: "accepté", RESEND_CORRECTION: "renvoyé pour correction", DECLINE: "refusé" };
+    const decisionLabel = decisionLabels[decision as string] ?? decision;
     const results = await Promise.allSettled(
       recipients.map((email) =>
         sendEmail({

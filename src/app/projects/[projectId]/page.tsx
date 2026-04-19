@@ -58,23 +58,21 @@ export default async function ProjectHomePage({
           </p>
         </Link>
 
-        {/* Module Situations de travaux (Stub) */}
-        <div className="group relative flex flex-col rounded-2xl border border-slate-200 bg-slate-50 p-6 opacity-70 dark:border-slate-800 dark:bg-slate-900/50">
-          <div className="flex justify-between items-start">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-              <FileText className="h-6 w-6" />
-            </div>
-            <span className="inline-flex items-center rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-              À venir
-            </span>
+        {/* Module Situations de travaux */}
+        <Link
+          href={`/projects/${projectId}/situations`}
+          className="group relative flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:shadow-md hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
+        >
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900">
+            <FileText className="h-6 w-6" />
           </div>
           <h2 className="mt-4 text-xl font-semibold text-slate-900 dark:text-slate-100">
             Situations travaux
           </h2>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-            Gestion des avancements mensuels et de la facturation. Fonctionnalité en cours de développement.
+            Suivi des avancements mensuels, validation MOE/MOA et décomptes financiers par entreprise.
           </p>
-        </div>
+        </Link>
 
         {/* Module Configuration (MOE / MOA / ADMIN only) */}
         {pm.role !== ProjectRole.ENTREPRISE && (

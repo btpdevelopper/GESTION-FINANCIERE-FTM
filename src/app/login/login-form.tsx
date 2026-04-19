@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { sendPasswordResetAction } from "@/server/auth/reset-password-action";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { Mail, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { Mail, ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert } from "@/components/ui/alert";
@@ -52,29 +52,28 @@ export function LoginForm() {
   if (view === "reset-sent") {
     return (
       <div className="space-y-4">
-        <Alert variant="success" className="flex flex-col items-center gap-2 py-4 text-center">
-          <CheckCircle2 className="h-6 w-6 text-emerald-500" />
-          <p className="font-medium">
+        <div className="flex flex-col items-center gap-2 rounded border border-teal-200 bg-teal-50 px-4 py-5 text-center dark:border-teal-800 dark:bg-teal-950/30">
+          <CheckCircle2 className="h-5 w-5 text-teal-600 dark:text-teal-400" />
+          <p className="text-sm font-medium text-teal-800 dark:text-teal-300">
             Email envoyé à <span className="font-semibold">{email}</span>
           </p>
-          <p className="text-xs opacity-80">
+          <p className="text-xs text-teal-700 dark:text-teal-400">
             Cliquez sur le lien dans l&apos;email pour définir votre mot de passe. Vérifiez aussi
             vos spams si vous ne le recevez pas dans quelques minutes.
           </p>
-        </Alert>
-        <Button
-          variant="ghost"
-          size="lg"
-          className="w-full border border-slate-200 dark:border-slate-700"
+        </div>
+        <button
+          type="button"
           onClick={() => {
             setView("login");
             setError(null);
             setIsFirstConnection(false);
           }}
+          className="flex w-full items-center justify-center gap-1.5 text-xs text-slate-500 transition hover:text-slate-800 dark:hover:text-slate-200"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-3.5 w-3.5" />
           Retour à la connexion
-        </Button>
+        </button>
       </div>
     );
   }
@@ -102,7 +101,8 @@ export function LoginForm() {
           </div>
         </div>
         {error && <Alert variant="error">{error}</Alert>}
-        <Button type="submit" size="lg" disabled={pending} className="w-full justify-center">
+        <Button type="submit" size="md" disabled={pending} className="w-full justify-center">
+          {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {pending ? "Envoi en cours…" : "Envoyer le lien"}
         </Button>
         <button
@@ -112,9 +112,9 @@ export function LoginForm() {
             setError(null);
             setIsFirstConnection(false);
           }}
-          className="flex w-full items-center justify-center gap-2 text-sm text-slate-500 transition hover:text-slate-700 dark:hover:text-slate-300"
+          className="flex w-full items-center justify-center gap-1.5 text-xs text-slate-500 transition hover:text-slate-800 dark:hover:text-slate-200"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-3.5 w-3.5" />
           Retour à la connexion
         </button>
       </form>
@@ -163,7 +163,8 @@ export function LoginForm() {
         />
       </div>
       {error && <Alert variant="error">{error}</Alert>}
-      <Button type="submit" size="lg" disabled={pending} className="w-full justify-center">
+      <Button type="submit" size="md" disabled={pending} className="w-full justify-center">
+        {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
         {pending ? "Connexion en cours…" : "Se connecter"}
       </Button>
       <p className="text-center text-xs text-slate-500 dark:text-slate-400">

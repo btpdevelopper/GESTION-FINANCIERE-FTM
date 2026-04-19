@@ -1,47 +1,58 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { LoginForm } from "./login-form";
 
 export default function LoginPage() {
   return (
-    <main className="flex min-h-screen">
-      {/* Visual left panel */}
-      <div className="hidden relative overflow-hidden bg-slate-900 lg:flex lg:w-1/2">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-600 via-purple-700 to-slate-900 opacity-90" />
-        <div className="absolute -left-1/4 top-0 h-full w-full -rotate-12 transform bg-gradient-to-r from-transparent via-white/10 to-transparent blur-3xl mix-blend-overlay" />
-        <div className="relative z-10 flex flex-col justify-center p-16 text-white">
-          <h1 className="mb-6 mt-auto text-5xl font-bold tracking-tight">
-            Gestion Financière <br /> FTM
+    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12 dark:bg-slate-950">
+      <div className="w-full max-w-sm space-y-6">
+        {/* App identity */}
+        <div className="text-center">
+          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-5 w-5 text-slate-700 dark:text-slate-300"
+            >
+              <rect x="2" y="3" width="20" height="14" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+              <path d="M7 8h2M7 12h10M13 8h4" />
+            </svg>
+          </div>
+          <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+            Gestion Financière FTM
           </h1>
-          <p className="max-w-md text-lg text-indigo-100/80">
-            Une plateforme moderne et dynamique pour piloter les modifications de vos chantiers, collaborer avec vos partenaires et sécuriser vos budgets.
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            Pilotage financier de chantier
           </p>
         </div>
-      </div>
 
-      {/* Login form right panel */}
-      <div className="flex w-full items-center justify-center bg-slate-50 p-8 dark:bg-slate-950 sm:p-12 lg:w-1/2">
-        <div className="w-full max-w-md space-y-8 rounded-2xl border border-slate-100 bg-white/70 p-8 shadow-xl shadow-slate-200/50 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/70 dark:shadow-slate-900/50">
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              Bon retour
+        {/* Form card */}
+        <div className="rounded border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+          <div className="mb-5">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Connexion
             </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Connectez-vous pour accéder à vos projets et FTM.
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              Accédez à vos projets et prévisionnels.
             </p>
           </div>
-          <Suspense fallback={<p className="animate-pulse text-sm text-slate-500">Chargement…</p>}>
+          <Suspense
+            fallback={
+              <p className="animate-pulse text-xs text-slate-400">Chargement…</p>
+            }
+          >
             <LoginForm />
           </Suspense>
-          <div className="flex items-center justify-center pt-4">
-            <Link
-              className="font-medium text-indigo-600 transition-colors hover:text-indigo-500 dark:text-indigo-400"
-              href="/"
-            >
-              ← Retour à l'accueil
-            </Link>
-          </div>
         </div>
+
+        {/* Footer */}
+        <p className="text-center text-[11px] text-slate-400 dark:text-slate-600">
+          © {new Date().getFullYear()} Gestion Financière FTM
+        </p>
       </div>
     </main>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import Link from "next/link";
 import {
   BarChart,
@@ -291,9 +291,8 @@ export function SituationsDashboard({ data, projectId }: Props) {
                 const over = reste < 0;
 
                 return (
-                  <>
+                  <Fragment key={row.org.id}>
                     <tr
-                      key={row.org.id}
                       onClick={() => setExpandedOrgId(isExpanded ? null : row.org.id)}
                       className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40"
                     >
@@ -339,7 +338,7 @@ export function SituationsDashboard({ data, projectId }: Props) {
                     </tr>
 
                     {isExpanded && (
-                      <tr key={`${row.org.id}-detail`} className="bg-slate-50 dark:bg-slate-800/20">
+                      <tr className="bg-slate-50 dark:bg-slate-800/20">
                         <td colSpan={9} className="px-4 py-3">
                           <DetailTable
                             situations={row.situations}
@@ -349,7 +348,7 @@ export function SituationsDashboard({ data, projectId }: Props) {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>

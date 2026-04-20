@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev          # Start development server
 npm run build        # Production build
 npm run lint         # ESLint
+npm test             # Run Vitest unit/integration tests (pure logic, no DB)
+npm run test:watch   # Vitest in watch mode
 
 # Database (Prisma)
 npm run db:generate  # Regenerate Prisma client after schema changes
@@ -32,6 +34,13 @@ This is a **multi-tenant construction project financial tracking** app centered 
    - **Constraint:** Strictly sequential. A new situation cannot be created if a previous one is pending. The previous month *must* be `MOA_APPROVED`.
    - **Financials:** Mathematical snapshots (Retenue de garantie, Avance travaux, Pénalités) are computed dynamically but are strictly **frozen/saved** to the database only upon `MOA_APPROVED` to preserve historical accuracy.
 3. **Prévisionnels / Forecasts:** Forward-looking monthly planning per enterprise per project.
+4. **Pénalités (Penalties):** Contractual penalties per enterprise, proposed by MOE and validated by MOA.
+   - **Lifecycle:** `DRAFT → SUBMITTED → MOA review (MOA_APPROVED/MOA_REFUSED) → (CONTESTED by ENTREPRISE) → (CANCELLED/MAINTAINED)`.
+   - **Amount types:** `FIXED` (cents), `PCT_BASE_MARCHE` (% of base marché), `PCT_ACTUAL_MARCHE` (% of base marché + approved FTMs). Amount is frozen at submission and never recomputed.
+   - **Application:** linked to a specific `SituationTravaux` (deducted at MOA approval) or flagged for DGD (future).
+   - **Multiple penalties** per company are allowed simultaneously.
+   - **Contest:** ENTREPRISE can contest `MOA_APPROVED` penalties with mandatory justification (min 10 chars). MOE/MOA then cancels or maintains.
+   - **MOA can cancel** at any lifecycle state. MOE can only cancel own `DRAFT`.
    - **Lifecycle:** `DRAFT → SUBMITTED → MOE review (MOE_APPROVED/MOE_CORRECTION/MOE_REFUSED) → MOA validation (MOA_APPROVED/MOA_REFUSED)`.
    - Supports multiple **indices** (versioned resubmissions) — unlike Situations which are strictly sequential by number.
    - MOA can waive the forecast requirement per enterprise via `CompanyContractSettings.forecastWaived`.
@@ -52,6 +61,7 @@ This is a **multi-tenant construction project financial tracking** app centered 
   - Situations: `SUBMIT_SITUATION`, `REVIEW_SITUATION_MOE`, `VALIDATE_SITUATION_MOA`
   - Forecasts: `SUBMIT_FORECAST`, `REVIEW_FORECAST_MOE`, `VALIDATE_FORECAST_MOA`
   - Admin: `CONFIGURE_CONTRACT_SETTINGS`
+  - Penalties: `CREATE_PENALTY` (MOE), `VALIDATE_PENALTY_MOA` (MOA), `CONTEST_PENALTY` (ENTREPRISE)
 - **Deny-wins**: individual `ProjectMemberCapabilityOverride` denies beat group defaults.
 - Always call `resolveCapabilities(userId, projectId)` before performing sensitive mutations in server actions.
 - `src/server/ftm/access.ts` — `userCanViewFtm()` checks FTM access: MOA/MOE always; ENTREPRISE only if in a concerned org.
@@ -71,6 +81,8 @@ All files use `"use server"`. Key modules:
 - `situations/contract-settings-actions.ts` — `upsertCompanyContractSettingsAction()`: configure retenue, avance travaux, pénalités, forecast waiver per enterprise.
 - `forecast/forecast-actions.ts` — `saveForecastEntriesAction()`, `submitForecastAction()`, `moeReviewForecastAction()`, `moaValidateForecastAction()`, `createNewForecastIndiceAction()`, `setForecastWaivedAction()`.
 - `forecast/forecast-queries.ts` — `getProjectForecasts()`, `getForecast()`, `getForecastIndices()`, `getForecastsDashboardData()`.
+- `penalties/penalty-actions.ts` — `createPenaltyAction()`, `updatePenaltyDraftAction()`, `submitPenaltyAction()`, `moaReviewPenaltyAction()`, `cancelPenaltyAction()`, `contestPenaltyAction()`, `maintainPenaltyAction()`.
+- `penalties/penalty-queries.ts` — `getProjectPenalties()`, `getCompanyPenalties()`, `getPenaltiesForSituation()`, `getOwnPenalties()`, `getEligibleSituationsForPenalty()`, `getPenaltiesDashboardData()`.
 - `notifications/pending-counts.ts` — `getProjectPendingCounts()`: role-aware badge counts for FTM, situations, and forecasts.
 - `lib/situations/calculations.ts` — Pure functions for deduction math (retenue, avances, penalties).
 
@@ -87,6 +99,8 @@ Key models and relations:
 - `Forecast` — forward-looking plan per org per project. Has `ForecastEntry[]` (period + planned amount) and `ForecastReview[]`.
 - `ForecastEntry` — individual YYYY-MM period with planned amount.
 - `ForecastReview` — audit trail for each MOE/MOA decision on a forecast.
+- `Penalty` — contractual penalty per org per project. `amountType`: FIXED/PCT_BASE_MARCHE/PCT_ACTUAL_MARCHE. `inputValue`: cents or basis points. `frozenAmountCents`: frozen at submission. Optional FK to `SituationTravaux`.
+- `PenaltyReview` — audit trail per penalty action (SUBMITTED/MOA_APPROVED/MOA_REFUSED/CONTESTED/CANCELLED/MAINTAINED).
 - `AuditLog` — append-only action trail per project.
 
 ### Event-Driven Notifications (Inngest)
@@ -135,6 +149,10 @@ Project admin at `/projects/[projectId]/admin/` is split into four focused tabs:
 - Counts are role-specific: MOA sees MOE-approved items awaiting final validation; MOE sees submitted items awaiting review; ENTREPRISE sees items needing correction.
 - Forecast dashboard at `/projects/[projectId]/forecasts/` shows all enterprises with latest forecast status and comparison charts.
 - Situation dashboard at `/projects/[projectId]/situations/` shows period-by-period financial comparison tables.
+- **Penalties dashboard** at `/projects/[projectId]/penalties/` — global overview (MOE/MOA only): per-company table with counts (draft/submitted/approved/contested) and total active penalty amounts.
+- **Per-company penalties** at `/projects/[projectId]/penalties/[orgId]` — full management with `CreatePenaltyForm` (MOE), `PenaltyCard` with inline MOA review/contest/maintain actions.
+- **ENTREPRISE contest flow**: approved penalties linked to a situation appear on the `SituationTravaux` detail page with a "Contester" link to `/penalties/[orgId]`. Contest itself lives in the penalty module, not inline in the situation.
+- **Penalty calculation library**: `src/lib/penalties/calculations.ts` — pure functions `computePenaltyFrozenAmount()`, `sumActivePenalties()`, `isPenaltyContestable()`, `canCancelPenalty()`, `canMaintainPenalty()`. Tested in `src/__tests__/lib/penalties/`.
 
 ### UI Component Library (`src/components/ui/`)
 

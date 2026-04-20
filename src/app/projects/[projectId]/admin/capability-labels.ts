@@ -81,6 +81,18 @@ export const CAPABILITY_LABELS: Record<Capability, { label: string; description:
     label: "Valider un prévisionnel (MOA)",
     description: "Validation finale du MOA sur les prévisionnels approuvés par le MOE.",
   },
+  CREATE_PENALTY: {
+    label: "Créer une pénalité (MOE)",
+    description: "Peut créer, modifier et soumettre des pénalités contractuelles pour validation.",
+  },
+  VALIDATE_PENALTY_MOA: {
+    label: "Valider une pénalité (MOA)",
+    description: "Approuve ou refuse les pénalités soumises par le MOE, et peut annuler à tout moment.",
+  },
+  CONTEST_PENALTY: {
+    label: "Contester une pénalité (Entreprise)",
+    description: "Permet à une entreprise de contester une pénalité approuvée avec justification obligatoire.",
+  },
 };
 
 export function labelForCapability(c: Capability): string {

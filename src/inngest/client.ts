@@ -132,6 +132,51 @@ export type FtmEvents = {
   };
 };
 
+export type PenaltyEvents = {
+  /** MOE submitted a penalty for MOA approval */
+  "penalty/submitted": {
+    data: {
+      projectId: string;
+      penaltyId: string;
+      label: string;
+      organizationId: string;
+      frozenAmountCents: string; // BigInt serialised as string
+    };
+  };
+
+  /** MOA approved a penalty → notify MOE + company */
+  "penalty/moa-approved": {
+    data: {
+      projectId: string;
+      penaltyId: string;
+      label: string;
+      organizationId: string;
+      frozenAmountCents: string;
+    };
+  };
+
+  /** MOA refused a penalty → notify MOE */
+  "penalty/moa-refused": {
+    data: {
+      projectId: string;
+      penaltyId: string;
+      label: string;
+      organizationId: string;
+    };
+  };
+
+  /** Company contested a penalty → notify MOE + MOA */
+  "penalty/contested": {
+    data: {
+      projectId: string;
+      penaltyId: string;
+      label: string;
+      organizationId: string;
+      justification: string;
+    };
+  };
+};
+
 export const inngest = new Inngest({
   id: "aurem-gestion-financiere",
   isDev: process.env.NODE_ENV === "development",

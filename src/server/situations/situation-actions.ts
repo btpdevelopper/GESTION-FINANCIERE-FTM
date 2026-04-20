@@ -16,6 +16,8 @@ import {
   getPastRefundedAmount,
   getPreviousApprovedCumulative,
 } from "./situation-queries";
+import { getPenaltiesForSituation } from "@/server/penalties/penalty-queries";
+import { sumActivePenalties } from "@/lib/penalties/calculations";
 
 const IMMUTABLE_STATUSES = [
   SituationStatus.MOA_APPROVED,
@@ -420,15 +422,19 @@ export async function moaValidateSituationAction(raw: unknown) {
     where: { projectId_organizationId: { projectId: data.projectId, organizationId: situation.organizationId } },
   });
 
-  const [marcheTotal, ftmTotal, pastRefunded, previousCumulative] = await Promise.all([
-    getOrgMarcheTotalCents(data.projectId, situation.organizationId),
-    getOrgApprovedFtmTotalCents(data.projectId, situation.organizationId),
-    getPastRefundedAmount(data.projectId, situation.organizationId, situation.numero),
-    getPreviousApprovedCumulative(data.projectId, situation.organizationId, situation.numero),
-  ]);
+  const [marcheTotal, ftmTotal, pastRefunded, previousCumulative, dedicatedPenalties] =
+    await Promise.all([
+      getOrgMarcheTotalCents(data.projectId, situation.organizationId),
+      getOrgApprovedFtmTotalCents(data.projectId, situation.organizationId),
+      getPastRefundedAmount(data.projectId, situation.organizationId, situation.numero),
+      getPreviousApprovedCumulative(data.projectId, situation.organizationId, situation.numero),
+      getPenaltiesForSituation(data.situationId),
+    ]);
 
   const totalEnveloppe = marcheTotal + ftmTotal;
-  const penaltyAmount = situation.penaltyAmountCents ?? BigInt(0);
+  // Legacy inline penalty (set during MOE review) + dedicated Penalty records
+  const dedicatedTotal = sumActivePenalties(dedicatedPenalties);
+  const penaltyAmount = (situation.penaltyAmountCents ?? BigInt(0)) + dedicatedTotal;
 
   let snapshot = null;
   if (contractSettings) {

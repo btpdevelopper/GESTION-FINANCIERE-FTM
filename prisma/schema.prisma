@@ -39,6 +39,7 @@ model Organization {
   situations         SituationTravaux[]
   contractSettings   CompanyContractSettings[]
   forecasts          Forecast[]
+  penalties          Penalty[]
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
   ftmDocuments       FtmDocument[]
@@ -69,6 +70,7 @@ model Project {
   situations       SituationTravaux[]
   contractSettings CompanyContractSettings[]
   forecasts        Forecast[]
+  penalties        Penalty[]
   createdAt        DateTime                 @default(now())
   updatedAt        DateTime                 @updatedAt
 }
@@ -129,6 +131,8 @@ model ProjectMember {
   moeReviewedForecasts   Forecast[]                        @relation("ForecastMoeReviewer")
   moaValidatedForecasts  Forecast[]                        @relation("ForecastMoaValidator")
   forecastReviews        ForecastReview[]                  @relation("ForecastReviewMember")
+  createdPenalties       Penalty[]                         @relation("PenaltyCreator")
+  penaltyReviews         PenaltyReview[]                   @relation("PenaltyReviewMember")
 
   @@unique([userId, projectId, organizationId])
   @@index([projectId])
@@ -177,6 +181,9 @@ enum Capability {
   SUBMIT_FORECAST
   REVIEW_FORECAST_MOE
   VALIDATE_FORECAST_MOA
+  CREATE_PENALTY
+  VALIDATE_PENALTY_MOA
+  CONTEST_PENALTY
 }
 
 model ProjectPermissionGroupCapability {
@@ -480,6 +487,7 @@ model SituationTravaux {
   moeReviewedBy  ProjectMember? @relation("SituationMoeReviewer", fields: [moeReviewedById], references: [id])
   moaValidatedBy ProjectMember? @relation("SituationMoaValidator", fields: [moaValidatedById], references: [id])
   reviews        SituationReview[]
+  penalties      Penalty[]
 
   @@unique([projectId, organizationId, numero])
   @@index([projectId])
@@ -656,7 +664,88 @@ model FtmDemand {
   
   documents                FtmDocument[]
   ftmRecords               FtmRecord[]
-  
+
   createdAt                DateTime           @default(now())
   updatedAt                DateTime           @updatedAt
+}
+
+// --- Penalties (Pénalités) ---
+
+enum PenaltyStatus {
+  DRAFT
+  SUBMITTED
+  MOA_APPROVED
+  MOA_REFUSED
+  CONTESTED
+  CANCELLED
+  MAINTAINED
+}
+
+enum PenaltyAmountType {
+  FIXED
+  PCT_BASE_MARCHE
+  PCT_ACTUAL_MARCHE
+}
+
+enum PenaltyApplicationTarget {
+  SITUATION
+  DGD
+}
+
+enum PenaltyReviewAction {
+  SUBMITTED
+  MOA_APPROVED
+  MOA_REFUSED
+  CONTESTED
+  CANCELLED
+  MAINTAINED
+}
+
+model Penalty {
+  id             String                   @id @default(uuid()) @db.Uuid
+  projectId      String                   @db.Uuid
+  organizationId String                   @db.Uuid
+
+  label          String
+  justification  String                   @db.Text
+
+  // Amount: inputValue is cents for FIXED, basis points (×100) for PCT types
+  amountType        PenaltyAmountType
+  inputValue        BigInt
+  // Frozen at submission time; null until then
+  frozenAmountCents BigInt?
+
+  applicationTarget PenaltyApplicationTarget @default(SITUATION)
+  situationId       String?                  @db.Uuid
+
+  status            PenaltyStatus            @default(DRAFT)
+
+  createdByMemberId String                   @db.Uuid
+
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  situation   SituationTravaux? @relation(fields: [situationId], references: [id])
+  createdBy   ProjectMember    @relation("PenaltyCreator", fields: [createdByMemberId], references: [id])
+  reviews     PenaltyReview[]
+
+  @@index([projectId])
+  @@index([organizationId])
+  @@index([situationId])
+}
+
+model PenaltyReview {
+  id        String              @id @default(uuid()) @db.Uuid
+  penaltyId String              @db.Uuid
+  memberId  String              @db.Uuid
+  action    PenaltyReviewAction
+  comment   String?             @db.Text
+  createdAt DateTime            @default(now())
+
+  penalty Penalty       @relation(fields: [penaltyId], references: [id], onDelete: Cascade)
+  member  ProjectMember @relation("PenaltyReviewMember", fields: [memberId], references: [id])
+
+  @@index([penaltyId, createdAt])
 }

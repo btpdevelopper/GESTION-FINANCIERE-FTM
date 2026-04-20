@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
 import { getSituation, getCompanyContractSettings, getOrgMarcheTotalCents } from "@/server/situations/situation-queries";
+import { getOwnPenalties } from "@/server/penalties/penalty-queries";
 import { getFtmDocumentUrl } from "@/lib/storage";
 import { Capability, ForecastStatus, ProjectRole, SituationStatus } from "@prisma/client";
 import { can } from "@/lib/permissions/resolve";
@@ -11,7 +12,8 @@ import { MoeReviewForm } from "./moe-review-form";
 import { MoaValidateForm } from "./moa-validate-form";
 import { UpdateDraftForm } from "./update-draft-form";
 import { SituationTimeline } from "./situation-timeline";
-import { CheckCircle, XCircle, AlertCircle, Clock, FileText, AlertTriangle } from "lucide-react";
+import { CheckCircle, XCircle, AlertCircle, Clock, FileText, AlertTriangle, ShieldAlert } from "lucide-react";
+import { PenaltyStatus } from "@prisma/client";
 
 function formatPeriod(periodLabel: string): string {
   if (/^\d{4}-\d{2}$/.test(periodLabel)) {
@@ -52,7 +54,7 @@ export default async function SituationDetailPage({
   // ENTREPRISE can only see their own org's situations
   if (pm.role === ProjectRole.ENTREPRISE && pm.organizationId !== orgId) notFound();
 
-  const [situation, contractSettings, canMoeReview, canMoaValidate, canSubmit, marcheTotalBigInt] =
+  const [situation, contractSettings, canMoeReview, canMoaValidate, canSubmit, marcheTotalBigInt, canContest] =
     await Promise.all([
       getSituation(projectId, situationId),
       getCompanyContractSettings(projectId, orgId),
@@ -60,9 +62,15 @@ export default async function SituationDetailPage({
       can(pm.id, Capability.VALIDATE_SITUATION_MOA),
       can(pm.id, Capability.SUBMIT_SITUATION),
       getOrgMarcheTotalCents(projectId, orgId),
+      can(pm.id, Capability.CONTEST_PENALTY),
     ]);
 
   if (!situation || situation.organizationId !== orgId) notFound();
+
+  // Load penalties linked to this situation (for ENTREPRISE + MOE/MOA view)
+  const linkedPenalties = await getOwnPenalties(projectId, orgId)
+    .then((ps) => ps.filter((p) => p.situationId === situationId))
+    .catch(() => []);
 
   // Fetch approved forecast (all entries) + previous approved situation in parallel
   const [approvedForecast, prevApprovedSituation] = await Promise.all([
@@ -332,6 +340,47 @@ export default async function SituationDetailPage({
           {situation.moaComment && (
             <p className="text-sm text-red-700 dark:text-red-400">{situation.moaComment}</p>
           )}
+        </div>
+      )}
+
+      {/* Dedicated penalties linked to this situation */}
+      {linkedPenalties.length > 0 && (
+        <div className="rounded border border-slate-200 bg-white p-4 space-y-3 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <ShieldAlert className="h-4 w-4 text-red-500" />
+            Pénalités associées à cette situation
+          </h2>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {linkedPenalties.map((p) => {
+              const isContestable = canContest && p.status === PenaltyStatus.MOA_APPROVED;
+              return (
+                <div key={p.id} className="py-2.5 flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+                      {p.label}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {p.frozenAmountCents != null
+                        ? (Number(p.frozenAmountCents) / 100).toLocaleString("fr-FR", {
+                            style: "currency",
+                            currency: "EUR",
+                          })
+                        : "Montant à calculer"}{" "}
+                      · {p.status === PenaltyStatus.MOA_APPROVED ? "Approuvée" : p.status === PenaltyStatus.CONTESTED ? "Contestée" : p.status === PenaltyStatus.MAINTAINED ? "Maintenue" : p.status}
+                    </p>
+                  </div>
+                  {isContestable && (
+                    <a
+                      href={`/projects/${projectId}/penalties/${orgId}`}
+                      className="shrink-0 rounded border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700 hover:bg-orange-100 dark:border-orange-900/50 dark:bg-orange-950/20 dark:text-orange-300"
+                    >
+                      Contester
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

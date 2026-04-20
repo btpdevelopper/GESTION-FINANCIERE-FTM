@@ -23,12 +23,18 @@ Always run `npm run db:generate` after editing `prisma/schema.prisma`.
 
 **Stack:** Next.js 16 App Router · Prisma 6 · Supabase (Auth + Storage + PostgreSQL) · Inngest (events) · Resend (email) · Tailwind
 
-This is a **multi-tenant construction project financial tracking** app centered on two main workflows:
+This is a **multi-tenant construction project financial tracking** app centered on three main workflows:
 1. **FTM (Fiche Technique de Marché):** Document lifecycle (`ETUDES → QUOTING → ANALYSIS → MOA_FINAL`).
+   - ENTREPRISE submits an `FtmDemand` first; MOE approves it before an `FtmRecord` is created (`FtmRecord.fromDemandId`).
+   - Demand lifecycle: `DRAFT → PENDING_MOE → APPROVED/REJECTED`.
 2. **Situations de Travaux (Billing):** Monthly financial progress tracking and invoicing.
    - **Lifecycle:** `DRAFT → SUBMITTED → MOE review (APPROVED/CORRECTION/REFUSED) → MOA review (APPROVED/REFUSED)`.
    - **Constraint:** Strictly sequential. A new situation cannot be created if a previous one is pending. The previous month *must* be `MOA_APPROVED`.
    - **Financials:** Mathematical snapshots (Retenue de garantie, Avance travaux, Pénalités) are computed dynamically but are strictly **frozen/saved** to the database only upon `MOA_APPROVED` to preserve historical accuracy.
+3. **Prévisionnels / Forecasts:** Forward-looking monthly planning per enterprise per project.
+   - **Lifecycle:** `DRAFT → SUBMITTED → MOE review (MOE_APPROVED/MOE_CORRECTION/MOE_REFUSED) → MOA validation (MOA_APPROVED/MOA_REFUSED)`.
+   - Supports multiple **indices** (versioned resubmissions) — unlike Situations which are strictly sequential by number.
+   - MOA can waive the forecast requirement per enterprise via `CompanyContractSettings.forecastWaived`.
 
 ### Auth & Middleware
 
@@ -41,9 +47,15 @@ This is a **multi-tenant construction project financial tracking** app centered 
 ### RBAC / Permissions
 
 - Three project roles: **MOA** (owner), **MOE** (technical lead), **ENTREPRISE** (contractor).
-- Capabilities (e.g. `VIEW_GLOBAL_FINANCE`, `CREATE_FTM`, `SUBMIT_SITUATION`, `REVIEW_SITUATION_MOE`, `VALIDATE_SITUATION_MOA`) are resolved in `src/lib/permissions/resolve.ts`.
+- Capabilities resolved in `src/lib/permissions/resolve.ts`. Key capabilities:
+  - FTM: `CREATE_FTM`, `VIEW_GLOBAL_FINANCE`
+  - Situations: `SUBMIT_SITUATION`, `REVIEW_SITUATION_MOE`, `VALIDATE_SITUATION_MOA`
+  - Forecasts: `SUBMIT_FORECAST`, `REVIEW_FORECAST_MOE`, `VALIDATE_FORECAST_MOA`
+  - Admin: `CONFIGURE_CONTRACT_SETTINGS`
 - **Deny-wins**: individual `ProjectMemberCapabilityOverride` denies beat group defaults.
 - Always call `resolveCapabilities(userId, projectId)` before performing sensitive mutations in server actions.
+- `src/server/ftm/access.ts` — `userCanViewFtm()` checks FTM access: MOA/MOE always; ENTREPRISE only if in a concerned org.
+- `src/server/membership.ts` — `getProjectMember()`, `requireProjectMember()`, `listProjectsForUser()`.
 
 ### Server Actions (`src/server/`)
 
@@ -51,48 +63,88 @@ All files use `"use server"`. Key modules:
 - `ftm/ftm-actions.ts` — FTM creation, phase transitions, quote handling, reviews.
 - `ftm/guest-actions.ts` — Actions for ENTREPRISE participants (quote submission, situation travaux).
 - `projects/wizard-actions.ts` — Project creation/onboarding flow.
+- `projects/admin-config-actions.ts` — Project metadata, lot management, enterprise-lot market amount assignment, base contract recalculation.
 - `rbac/admin-actions.ts` — Member invite, role/capability management.
 - `auth/reset-password-action.ts` — Password reset via Supabase.
-- `ftm/ftm-actions.ts` — FTM creation, phase transitions, quote handling, reviews.
 - `situations/situation-actions.ts` — Draft creation, submission, and MOE/MOA reviews for billing.
-- `situations/situation-queries.ts` — Aggregation functions for marché totals, approved FTM totals, and past refunds.
-- `lib/situations/calculations.ts` — Pure functions for complex deduction math (retenue, avances, penalties).
+- `situations/situation-queries.ts` — Aggregation functions: `getMarcheTotalCents()`, `getApprovedFtmTotalCents()`, `getPastRefunds()`.
+- `situations/contract-settings-actions.ts` — `upsertCompanyContractSettingsAction()`: configure retenue, avance travaux, pénalités, forecast waiver per enterprise.
+- `forecast/forecast-actions.ts` — `saveForecastEntriesAction()`, `submitForecastAction()`, `moeReviewForecastAction()`, `moaValidateForecastAction()`, `createNewForecastIndiceAction()`, `setForecastWaivedAction()`.
+- `forecast/forecast-queries.ts` — `getProjectForecasts()`, `getForecast()`, `getForecastIndices()`, `getForecastsDashboardData()`.
+- `notifications/pending-counts.ts` — `getProjectPendingCounts()`: role-aware badge counts for FTM, situations, and forecasts.
+- `lib/situations/calculations.ts` — Pure functions for deduction math (retenue, avances, penalties).
 
 ### Database Schema (Prisma)
 
 Key models and relations:
-- `Project` → has many `ProjectMember` (with role + capability overrides) and `FtmRecord`.
-- `FtmRecord` → belongs to a `Project` + `lot`; has `FtmQuoteSubmission[]`, `FtmReview[]`, `SituationTravaux[]`.
-- `FtmDemand` → precedes FtmRecord creation; initiated by ENTREPRISE.
-- `Organization` — companies/contractors; ENTREPRISE members belong to one.
+- `Project` → has many `ProjectMember` (with role + capability overrides), `FtmRecord`, `SituationTravaux`, `ProjectLot`.
+- `ProjectLot` — lots within a project (e.g. structural, electrical). Has many `ProjectLotOrganization` (enterprise + `montantMarcheHtCents`). Project `baseContract` is auto-recalculated from lot totals.
+- `FtmRecord` → belongs to `Project` + `lot`; has `FtmQuoteSubmission[]`, `FtmReview[]`, `SituationTravaux[]`.
+- `FtmDemand` → precedes `FtmRecord` creation; initiated by ENTREPRISE, reviewed by MOE.
+- `Organization` — companies/contractors; ENTREPRISE members belong to one. Has `CompanyContractSettings`.
+- `CompanyContractSettings` — per-company-per-project billing parameters: retenue de garantie %, avance de travaux (amount, start month, refund %, installments), pénalités (NONE/FREE_AMOUNT/DAILY_RATE), `forecastWaived` flag.
+- `SituationTravaux` — monthly billing cycle with raw submitted amounts and frozen deduction snapshots (set on MOA approval).
+- `Forecast` — forward-looking plan per org per project. Has `ForecastEntry[]` (period + planned amount) and `ForecastReview[]`.
+- `ForecastEntry` — individual YYYY-MM period with planned amount.
+- `ForecastReview` — audit trail for each MOE/MOA decision on a forecast.
 - `AuditLog` — append-only action trail per project.
-- `Project` → has many `ProjectMember` (with role + capability overrides), `FtmRecord`, and `SituationTravaux`.
-- `Organization` — companies/contractors; has `CompanyContractSettings` which dictate billing deductions.
-- `SituationTravaux` — represents a monthly billing cycle. Contains both the raw submitted cumulative amounts and the finalized "snapshot" deductions frozen upon MOA approval.
-- `CompanyContractSettings` — parameters for "Retenue de garantie", "Avance de travaux", and "Pénalités de retard" per company per project.
 
 ### Event-Driven Notifications (Inngest)
 
 - Client + typed event schema: `src/inngest/client.ts`.
-- Functions in `src/inngest/functions/notifications.ts` handle ~12 events (invitation, études decision, quote submitted, FTM cancelled, etc.).
-- `src/inngest/functions/remind-quotes.ts` runs scheduled reminders.
+- Functions in `src/inngest/functions/notifications.ts` handle all lifecycle events:
+  - **Invitations:** `app/member.invited`
+  - **FTM Demands:** `ftm/demand.submitted`, `ftm/demand.rejected`
+  - **FTM Études:** `ftm/etudes.submitted`, `ftm/etudes.decided`
+  - **FTM Quoting:** `ftm/quoting.opened`, `ftm/quote.submitted`, `ftm/quote.reviewed`, `ftm/quote.moa-final`
+  - **FTM Lifecycle:** `ftm/cancelled`, `ftm/accepted`
+  - **Auth:** `auth/password-reset`
+- `src/inngest/functions/remind-quotes.ts` — scheduled quote reminders.
 - Inngest webhook registered at `POST /api/inngest`.
 - Fire events with `inngest.send({ name: "ftm/...", data: {...} })` from server actions.
 
 ### Document Storage
 
 - Supabase Storage bucket: `ftm-documents`. Utility: `src/lib/storage.ts`.
-- Path conventions: 
+- Path conventions:
   - FTMs: `{ftmId}/{timestamp}-{sanitized-filename}`
   - Situations: `situations/{projectId}/{organizationId}/{timestamp}-{sanitized-filename}`
-- File validation uses magic number checks (not just MIME type) to prevent malicious uploads.
+- File validation uses magic number checks (not just MIME type) — `src/lib/validations/magic.ts`.
 - `GET /api/ftm-doc?path=...` is a **zero-trust proxy**: for ENTREPRISE users it checks that the document's `organizationId` matches the requester's org before returning a signed URL (1-hour expiry).
-- File validation uses magic number checks (not just MIME type) — see `ftm-actions.ts`.
 
 ### Email
 
 - Resend SDK wrapper at `src/lib/email.ts`; always returns `{ ok, error? }` (non-throwing).
-- React Email templates in `src/emails/` — `member-invite.tsx`, `password-reset.tsx`.
+- React Email templates in `src/emails/` with shared layout at `src/emails/_components/base-layout.tsx`:
+  - Auth: `member-invite.tsx`, `password-reset.tsx`
+  - FTM Demands: `demand-submitted.tsx`, `demand-rejected.tsx`
+  - FTM Études/Quoting: `etudes-submitted.tsx`, `etudes-decision.tsx`, `quoting-opened.tsx`, `quote-received.tsx`, `quote-review.tsx`
+  - FTM Lifecycle: `ftm-cancelled.tsx`, `ftm-accepted.tsx`
+
+### Admin Configuration (Tabbed UI)
+
+Project admin at `/projects/[projectId]/admin/` is split into four focused tabs:
+- `tab-general.tsx` — Project name, code, base contract display.
+- `tab-finance.tsx` — Lot management (add/edit/delete lots, assign enterprises with market amounts via `assign-companies-drawer.tsx`).
+- `tab-contrats.tsx` — Per-enterprise contract settings (holdback %, advance, penalties, forecast waiver).
+- `tab-rbac.tsx` — Members, permission groups, capability overrides.
+
+### Dashboard & Pending Counts
+
+- Project home (`/projects/[projectId]/`) shows four module cards with pending task counts from `getProjectPendingCounts()`.
+- Counts are role-specific: MOA sees MOE-approved items awaiting final validation; MOE sees submitted items awaiting review; ENTREPRISE sees items needing correction.
+- Forecast dashboard at `/projects/[projectId]/forecasts/` shows all enterprises with latest forecast status and comparison charts.
+- Situation dashboard at `/projects/[projectId]/situations/` shows period-by-period financial comparison tables.
+
+### UI Component Library (`src/components/ui/`)
+
+Reusable base components for the B2B SaaS interface. Barrel-exported via `index.ts`:
+- `alert.tsx`, `badge.tsx`, `button.tsx`, `card.tsx`, `empty-state.tsx`, `input.tsx`, `modal.tsx`, `tab-nav.tsx`
+
+### Validation
+
+- Zod action schemas in `src/lib/validations/actions.ts`.
+- Magic number file validation in `src/lib/validations/magic.ts`.
 
 ### Path Alias
 

@@ -58,13 +58,20 @@ export async function getPenaltiesForSituation(situationId: string) {
 export async function getOwnPenalties(projectId: string, orgId: string) {
   const user = await getAuthUser();
   if (!user?.id) throw new Error("Non authentifié.");
-  await requireProjectMember(user.id, projectId);
+  const pm = await requireProjectMember(user.id, projectId);
+
+  if (pm.role !== "ENTREPRISE" || pm.organizationId !== orgId) {
+    throw new Error("Accès refusé.");
+  }
 
   return prisma.penalty.findMany({
     where: {
       projectId,
       organizationId: orgId,
-      status: { in: [PenaltyStatus.MOA_APPROVED, PenaltyStatus.CONTESTED, PenaltyStatus.MAINTAINED, PenaltyStatus.CANCELLED] },
+      OR: [
+        { status: { in: [PenaltyStatus.MOA_APPROVED, PenaltyStatus.CONTESTED, PenaltyStatus.MAINTAINED] } },
+        { status: PenaltyStatus.CANCELLED, reviews: { some: { action: "CONTESTED" } } },
+      ],
     },
     include: PENALTY_INCLUDE,
     orderBy: { createdAt: "desc" },

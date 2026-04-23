@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { getAuthUser } from "@/lib/auth/user";
 import { notFound } from "next/navigation";
-import { Capability } from "@prisma/client";
+import { Capability, ProjectRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMember } from "@/server/membership";
 import { can } from "@/lib/permissions/resolve";
+import { DEFAULT_GROUP_NAMES } from "@/lib/permissions/defaults";
 import { ConfigurationClient } from "./configuration-client";
 
 export default async function ProjectAdminPage({
@@ -77,6 +78,13 @@ export default async function ProjectAdminPage({
   );
   const currentMemberId = pm.id;
 
+  const defaultGroupIdsByRole = Object.fromEntries(
+    (Object.values(ProjectRole) as ProjectRole[]).map((role) => {
+      const group = groups.find((g) => g.name === DEFAULT_GROUP_NAMES[role]);
+      return [role, group?.id ?? null];
+    }),
+  ) as Record<ProjectRole, string | null>;
+
   // Load enterprise orgs with their contract settings for the Contrats tab
   const enterpriseMembers = await prisma.projectMember.findMany({
     where: { projectId, role: "ENTREPRISE" },
@@ -135,6 +143,7 @@ export default async function ProjectAdminPage({
         organizationNames={organizationNames}
         currentMemberId={currentMemberId}
         enterprises={enterprises}
+        defaultGroupIdsByRole={defaultGroupIdsByRole}
       />
     </div>
   );

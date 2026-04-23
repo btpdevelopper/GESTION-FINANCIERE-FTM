@@ -7,6 +7,7 @@ import { getAuthUser } from "@/lib/auth/user";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMember } from "@/server/membership";
 import { can, mergeCapabilities } from "@/lib/permissions/resolve";
+import { DEFAULT_GROUP_NAMES } from "@/lib/permissions/defaults";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
 import { MemberInviteEmail } from "@/emails/member-invite";
@@ -163,12 +164,20 @@ export async function inviteProjectMemberAction(input: {
   }
   if (!orgName) throw new Error("Raison sociale de l'organisation requise.");
 
-  // Validate permission group belongs to the same project
+  // Resolve the permission group: explicit > default for role > none
+  let resolvedGroupId = input.permissionGroupId || null;
+
   if (input.permissionGroupId) {
     const g = await prisma.projectPermissionGroup.findFirst({
       where: { id: input.permissionGroupId, projectId: input.projectId },
     });
     if (!g) throw new Error("Groupe de permissions invalide.");
+  } else {
+    const defaultName = DEFAULT_GROUP_NAMES[input.role];
+    const defaultGroup = await prisma.projectPermissionGroup.findFirst({
+      where: { projectId: input.projectId, name: defaultName },
+    });
+    if (defaultGroup) resolvedGroupId = defaultGroup.id;
   }
 
   // Find or create organization
@@ -264,7 +273,7 @@ export async function inviteProjectMemberAction(input: {
       userId: dbUser.id,
       organizationId: org.id,
       role: input.role,
-      permissionGroupId: input.permissionGroupId || null,
+      permissionGroupId: resolvedGroupId,
     },
   });
 

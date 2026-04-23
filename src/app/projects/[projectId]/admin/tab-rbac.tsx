@@ -54,6 +54,7 @@ export function TabRbac({
   allCapabilities,
   organizationNames,
   currentMemberId,
+  defaultGroupIdsByRole,
 }: {
   projectId: string;
   members: Member[];
@@ -61,6 +62,7 @@ export function TabRbac({
   allCapabilities: Capability[];
   organizationNames: string[];
   currentMemberId: string | null;
+  defaultGroupIdsByRole: Record<ProjectRole, string | null>;
 }) {
   const [inviteOpen, setInviteOpen] = useState(false);
 
@@ -153,6 +155,7 @@ export function TabRbac({
         onClose={() => setInviteOpen(false)}
         organizationNames={organizationNames}
         groups={groups}
+        defaultGroupIdsByRole={defaultGroupIdsByRole}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { moeReviewSituationAction } from "@/server/situations/situation-actions";
 import { Loader2 } from "lucide-react";
@@ -10,6 +10,17 @@ import {
   SituationForecastPanel,
   ForecastComplianceBanner,
 } from "../../_components/forecast-visuals";
+
+type FtmBillingLine = {
+  id: string;
+  ftmTitle: string;
+  ftmNumber: number;
+  percentage: number;
+  billedAmountCents: number;
+  status: string;
+};
+
+type FtmDecision = "APPROVED" | "REFUSED" | "CORRECTION_NEEDED";
 
 type Props = {
   projectId: string;
@@ -23,6 +34,7 @@ type Props = {
   forecastWaived: boolean;
   marcheTotalCents: number;
   previousCumulativeCents: number;
+  ftmBillings: FtmBillingLine[];
 };
 
 function formatEur(cents: number): string {
@@ -41,10 +53,13 @@ export function MoeReviewForm({
   forecastWaived,
   marcheTotalCents,
   previousCumulativeCents,
+  ftmBillings,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [ftmDecisions, setFtmDecisions] = useState<Record<string, FtmDecision>>({});
+  const [ftmComments, setFtmComments] = useState<Record<string, string>>({});
   const [decision, setDecision] = useState<"APPROVED" | "CORRECTION_NEEDED" | "REFUSED">("APPROVED");
   const [adjustAmount, setAdjustAmount] = useState(false);
   const [adjustedAmountStr, setAdjustedAmountStr] = useState((currentCumulativeHtCents / 100).toFixed(2));
@@ -54,7 +69,8 @@ export function MoeReviewForm({
   const effectiveCents = adjustAmount
     ? Math.round(parseFloat(adjustedAmountStr.replace(",", ".") || "0") * 100)
     : currentCumulativeHtCents;
-  const thisPeriodCents = Math.max(0, effectiveCents - previousCumulativeCents);
+  const ftmPeriodCents = ftmBillings.reduce((sum, b) => sum + b.billedAmountCents, 0);
+  const thisPeriodCents = Math.max(0, effectiveCents - previousCumulativeCents) + ftmPeriodCents;
   const hasForecast = forecastEntries.length > 0;
   const showPanel = hasForecast || forecastWaived;
 
@@ -62,6 +78,21 @@ export function MoeReviewForm({
     penaltyType === "DAILY_RATE" && penaltyDailyRateCents && delayDays
       ? penaltyDailyRateCents * parseInt(delayDays, 10)
       : null;
+
+  function handleFtmDecision(billingId: string, decision: FtmDecision) {
+    setFtmDecisions((prev) => ({ ...prev, [billingId]: decision }));
+  }
+
+  const pendingFtmBillings = ftmBillings.filter((b) => b.status === "PENDING");
+  const anyFtmCorrectionSelected = Object.values(ftmDecisions).some(
+    (d) => d === "CORRECTION_NEEDED"
+  );
+
+  useEffect(() => {
+    if (anyFtmCorrectionSelected && decision === "APPROVED") {
+      setDecision("CORRECTION_NEEDED");
+    }
+  }, [anyFtmCorrectionSelected, decision]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -79,6 +110,26 @@ export function MoeReviewForm({
         ? Math.round(parseFloat(freeAmount.replace(",", ".")) * 100)
         : null;
 
+    // Validate FTM lines: every pending line must have a decision; correction requires comment
+    const missing = pendingFtmBillings.find((b) => !ftmDecisions[b.id]);
+    if (missing) {
+      setError(`Veuillez décider pour tous les FTMs (FTM n°${missing.ftmNumber}).`);
+      return;
+    }
+    for (const b of pendingFtmBillings) {
+      const d = ftmDecisions[b.id];
+      if (d === "CORRECTION_NEEDED" && !ftmComments[b.id]?.trim()) {
+        setError(`Indiquez la correction à apporter au FTM n°${b.ftmNumber}.`);
+        return;
+      }
+    }
+
+    const ftmReviews = pendingFtmBillings.map((b) => ({
+      billingId: b.id,
+      decision: ftmDecisions[b.id],
+      comment: ftmComments[b.id]?.trim() || null,
+    }));
+
     startTransition(async () => {
       try {
         await moeReviewSituationAction({
@@ -90,6 +141,7 @@ export function MoeReviewForm({
           penaltyType: penaltyType || "NONE",
           penaltyDelayDays: delayDays ? parseInt(delayDays, 10) : null,
           penaltyAmountCents,
+          ftmReviews,
         });
         router.refresh();
       } catch (err: unknown) {
@@ -122,32 +174,39 @@ export function MoeReviewForm({
               Décision
             </legend>
             <div className="flex flex-wrap gap-2">
-              {(["APPROVED", "CORRECTION_NEEDED", "REFUSED"] as const).map((d) => (
-                <label
-                  key={d}
-                  className={`flex cursor-pointer items-center gap-1.5 rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
-                    decision === d
-                      ? d === "APPROVED"
-                        ? "border-teal-500 bg-teal-50 text-teal-800 dark:bg-teal-950/30 dark:text-teal-300"
-                        : d === "REFUSED"
-                        ? "border-red-400 bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-300"
-                        : "border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
-                      : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="decision"
-                    value={d}
-                    checked={decision === d}
-                    onChange={() => setDecision(d)}
-                    className="sr-only"
-                  />
-                  {d === "APPROVED" && "Approuver"}
-                  {d === "CORRECTION_NEEDED" && "Renvoyer en correction"}
-                  {d === "REFUSED" && "Refuser"}
-                </label>
-              ))}
+              {(["APPROVED", "CORRECTION_NEEDED", "REFUSED"] as const).map((d) => {
+                const blocked = anyFtmCorrectionSelected && d === "APPROVED";
+                return (
+                  <label
+                    key={d}
+                    title={blocked ? "Des FTMs sont en attente de correction" : undefined}
+                    className={`flex cursor-pointer items-center gap-1.5 rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      blocked ? "opacity-40 cursor-not-allowed" : ""
+                    } ${
+                      decision === d
+                        ? d === "APPROVED"
+                          ? "border-teal-500 bg-teal-50 text-teal-800 dark:bg-teal-950/30 dark:text-teal-300"
+                          : d === "REFUSED"
+                          ? "border-red-400 bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-300"
+                          : "border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="decision"
+                      value={d}
+                      checked={decision === d}
+                      disabled={blocked}
+                      onChange={() => setDecision(d)}
+                      className="sr-only"
+                    />
+                    {d === "APPROVED" && "Approuver"}
+                    {d === "CORRECTION_NEEDED" && "Renvoyer en correction"}
+                    {d === "REFUSED" && "Refuser"}
+                  </label>
+                );
+              })}
             </div>
           </fieldset>
 
@@ -227,6 +286,82 @@ export function MoeReviewForm({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* FTM billing review */}
+          {pendingFtmBillings.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-slate-600 dark:text-slate-400">FTMs à réviser</p>
+              <div className="divide-y divide-slate-100 rounded border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
+                {pendingFtmBillings.map((b) => {
+                  const dec = ftmDecisions[b.id];
+                  return (
+                    <div key={b.id} className="px-3 py-2 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs">
+                          <span className="font-medium text-slate-800 dark:text-slate-200">
+                            FTM n°{b.ftmNumber} — {b.ftmTitle}
+                          </span>
+                          <span className="ml-2 text-slate-500">
+                            {b.percentage}% · {(b.billedAmountCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+                          </span>
+                        </div>
+                        <div className="flex gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleFtmDecision(b.id, "APPROVED")}
+                            className={`rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
+                              dec === "APPROVED"
+                                ? "border-teal-500 bg-teal-50 text-teal-700 dark:bg-teal-950/30 dark:text-teal-300"
+                                : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            ✓ Approuver
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleFtmDecision(b.id, "CORRECTION_NEEDED")}
+                            className={`rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
+                              dec === "CORRECTION_NEEDED"
+                                ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            ✎ Corriger
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleFtmDecision(b.id, "REFUSED")}
+                            className={`rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
+                              dec === "REFUSED"
+                                ? "border-red-400 bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300"
+                                : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            ✗ Refuser
+                          </button>
+                        </div>
+                      </div>
+                      {(dec === "REFUSED" || dec === "CORRECTION_NEEDED") && (
+                        <input
+                          type="text"
+                          placeholder={
+                            dec === "CORRECTION_NEEDED"
+                              ? "Indiquez ce qui doit être corrigé (ex. pourcentage) — obligatoire"
+                              : "Motif du refus (optionnel)"
+                          }
+                          value={ftmComments[b.id] ?? ""}
+                          onChange={(e) =>
+                            setFtmComments((prev) => ({ ...prev, [b.id]: e.target.value }))
+                          }
+                          className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

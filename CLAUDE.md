@@ -33,8 +33,15 @@ This is a **multi-tenant construction project financial tracking** app centered 
    - **Lifecycle:** `DRAFT → SUBMITTED → MOE review (APPROVED/CORRECTION/REFUSED) → MOA review (APPROVED/REFUSED)`.
    - **Constraint:** Strictly sequential. A new situation cannot be created if a previous one is pending. The previous month *must* be `MOA_APPROVED`.
    - **Financials:** Mathematical snapshots (Retenue de garantie, Avance travaux, Pénalités) are computed dynamically but are strictly **frozen/saved** to the database only upon `MOA_APPROVED` to preserve historical accuracy.
+   - **Document history:** `SituationReview` stores `documentUrl` + `documentName` per SUBMITTED event. Signed URLs for each review document are generated server-side in the detail `page.tsx` (using `getFtmDocumentUrl`) and passed as `reviewDocumentUrls: Record<string, string>` to `SituationTimeline`. In correction mode (`MOE_CORRECTION`), the company **must** upload a new document before saving or submitting — the UI enforces this client-side and the server guards it in `updateSituationDraftAction`. Document fields are never wiped on save: `updateSituationDraftAction` uses a conditional spread and only updates `documentUrl`/`documentName` when a new file is explicitly provided.
 3. **Prévisionnels / Forecasts:** Forward-looking monthly planning per enterprise per project.
-4. **Pénalités (Penalties):** Contractual penalties per enterprise, proposed by MOE and validated by MOA.
+4. **FTM Billing inside Situations:** Within a monthly situation, ENTREPRISE can bill a percentage of any MOA-accepted FTM on top of regular works.
+   - **UI:** FTM picker with % input in `UpdateDraftForm`; per-line approve/refuse review in `MoeReviewForm` and `MoaValidateForm`.
+   - **Cap:** Server enforces a 100% cumulative cap per FTM based on MOA-approved billings only (excludes current situation when editing).
+   - **Refused lines** can be removed and re-submitted in the next situation.
+   - **Net à payer** = periodNet − retenue − avance − penalties + sum(MOA_APPROVED ftmBillings). Frozen on `SituationTravaux.ftmBilledAmountCents` at MOA approval.
+   - **Effective marché** = base marché + approved FTMs − active penalties, shown across situation and penalty pages.
+5. **Pénalités (Penalties):** Contractual penalties per enterprise, proposed by MOE and validated by MOA.
    - **Lifecycle:** `DRAFT → SUBMITTED → MOA review (MOA_APPROVED/MOA_REFUSED) → (CONTESTED by ENTREPRISE) → (CANCELLED/MAINTAINED)`.
    - **Amount types:** `FIXED` (cents), `PCT_BASE_MARCHE` (% of base marché), `PCT_ACTUAL_MARCHE` (% of base marché + approved FTMs). Amount is frozen at submission and never recomputed.
    - **Application:** linked to a specific `SituationTravaux` (deducted at MOA approval) or flagged for DGD (future).
@@ -76,8 +83,8 @@ All files use `"use server"`. Key modules:
 - `projects/admin-config-actions.ts` — Project metadata, lot management, enterprise-lot market amount assignment, base contract recalculation.
 - `rbac/admin-actions.ts` — Member invite, role/capability management.
 - `auth/reset-password-action.ts` — Password reset via Supabase.
-- `situations/situation-actions.ts` — Draft creation, submission, and MOE/MOA reviews for billing.
-- `situations/situation-queries.ts` — Aggregation functions: `getMarcheTotalCents()`, `getApprovedFtmTotalCents()`, `getPastRefunds()`.
+- `situations/situation-actions.ts` — Draft creation, submission, MOE/MOA reviews, and FTM billing line CRUD (`upsertSituationFtmBillingAction`, `removeSituationFtmBillingAction`, `moeFtmBillingReviewAction`, `moaFtmBillingReviewAction`).
+- `situations/situation-queries.ts` — Aggregation functions: `getOrgMarcheTotalCents()`, `getOrgApprovedFtmTotalCents()`, `getPastRefundedAmount()`, `getAcceptedFtmsForOrg()`, `getFtmApprovedBilledCents()`, `getOrgActivePenaltiesTotalCents()`.
 - `situations/contract-settings-actions.ts` — `upsertCompanyContractSettingsAction()`: configure retenue, avance travaux, pénalités, forecast waiver per enterprise.
 - `forecast/forecast-actions.ts` — `saveForecastEntriesAction()`, `submitForecastAction()`, `moeReviewForecastAction()`, `moaValidateForecastAction()`, `createNewForecastIndiceAction()`, `setForecastWaivedAction()`.
 - `forecast/forecast-queries.ts` — `getProjectForecasts()`, `getForecast()`, `getForecastIndices()`, `getForecastsDashboardData()`.
@@ -95,7 +102,8 @@ Key models and relations:
 - `FtmDemand` → precedes `FtmRecord` creation; initiated by ENTREPRISE, reviewed by MOE.
 - `Organization` — companies/contractors; ENTREPRISE members belong to one. Has `CompanyContractSettings`.
 - `CompanyContractSettings` — per-company-per-project billing parameters: retenue de garantie %, avance de travaux (amount, start month, refund %, installments), pénalités (NONE/FREE_AMOUNT/DAILY_RATE), `forecastWaived` flag.
-- `SituationTravaux` — monthly billing cycle with raw submitted amounts and frozen deduction snapshots (set on MOA approval).
+- `SituationTravaux` — monthly billing cycle with raw submitted amounts and frozen deduction snapshots (set on MOA approval). Has `ftmBillings SituationFtmBilling[]` and frozen `ftmBilledAmountCents`.
+- `SituationFtmBilling` — per-FTM billing line within a situation. Lifecycle: `PENDING → MOE_APPROVED/MOE_REFUSED → MOA_APPROVED/MOA_REFUSED`. Enforces server-side 100% cumulative cap (MOA-approved billings only). Amount frozen at submission. Unique on `(situationId, ftmRecordId)`.
 - `Forecast` — forward-looking plan per org per project. Has `ForecastEntry[]` (period + planned amount) and `ForecastReview[]`.
 - `ForecastEntry` — individual YYYY-MM period with planned amount.
 - `ForecastReview` — audit trail for each MOE/MOA decision on a forecast.

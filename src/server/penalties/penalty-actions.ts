@@ -13,7 +13,7 @@ import {
   isPenaltyContestable,
   canMaintainPenalty,
 } from "@/lib/penalties/calculations";
-import { getOrgMarcheTotalCents, getOrgApprovedFtmTotalCents } from "@/server/situations/situation-queries";
+import { getOrgMarcheTotalCents, getOrgApprovedFtmTotalCents, getOrgActivePenaltiesTotalCents } from "@/server/situations/situation-queries";
 
 function revalidatePenalties(projectId: string, orgId?: string) {
   revalidatePath(`/projects/${projectId}/penalties`);
@@ -164,16 +164,18 @@ export async function submitPenaltyAction(raw: unknown) {
   if (!penalty) throw new Error("Pénalité introuvable.");
   if (penalty.status !== PenaltyStatus.DRAFT) throw new Error("Seuls les brouillons peuvent être soumis.");
 
-  // Freeze the amount at submission time
-  const [marcheCents, ftmCents] = await Promise.all([
+  // Freeze the amount at submission time using current marché, FTMs, and already-active penalties
+  const [marcheCents, ftmCents, activePenaltiesCents] = await Promise.all([
     getOrgMarcheTotalCents(data.projectId, penalty.organizationId),
     getOrgApprovedFtmTotalCents(data.projectId, penalty.organizationId),
+    getOrgActivePenaltiesTotalCents(data.projectId, penalty.organizationId),
   ]);
   const frozenAmount = computePenaltyFrozenAmount(
     penalty.amountType,
     penalty.inputValue,
     marcheCents,
     ftmCents,
+    activePenaltiesCents,
   );
 
   await prisma.penalty.update({

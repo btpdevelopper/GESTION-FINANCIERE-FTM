@@ -15,6 +15,8 @@ import {
   getOrgMarcheTotalCents,
   getPastRefundedAmount,
   getPreviousApprovedCumulative,
+  getAcceptedFtmsForOrg,
+  getFtmApprovedBilledCents,
 } from "./situation-queries";
 import { getPenaltiesForSituation } from "@/server/penalties/penalty-queries";
 import { sumActivePenalties } from "@/lib/penalties/calculations";
@@ -170,14 +172,21 @@ export async function updateSituationDraftAction(raw: unknown) {
     throw new Error("Un commentaire est obligatoire lorsque vous proposez un montant différent de celui du MOE.");
   }
 
+  // In correction mode a new document is required; otherwise preserve the existing one
+  if (situation.status === SituationStatus.MOE_CORRECTION && data.documentUrl === undefined) {
+    throw new Error("Vous devez joindre un nouveau document lors d'une correction.");
+  }
+
   await prisma.situationTravaux.update({
     where: { id: data.situationId },
     data: {
       periodLabel: data.periodLabel,
       cumulativeAmountHtCents: BigInt(data.cumulativeAmountHtCents),
-      documentUrl: data.documentUrl ?? null,
-      documentName: data.documentName ?? null,
       correctionComment: data.correctionComment ?? null,
+      // Only overwrite document fields when a new file was explicitly provided
+      ...(data.documentUrl !== undefined
+        ? { documentUrl: data.documentUrl, documentName: data.documentName ?? null }
+        : {}),
     },
   });
 
@@ -221,6 +230,18 @@ export async function submitSituationAction(raw: unknown) {
     throw new Error("Seules les situations en brouillon ou en correction peuvent être soumises.");
   }
 
+  // Block submission while any FTM line still sits in a correction-needed state
+  const unresolvedFtm = await prisma.situationFtmBilling.findFirst({
+    where: {
+      situationId: data.situationId,
+      status: { in: ["MOE_CORRECTION_NEEDED", "MOA_CORRECTION_NEEDED"] },
+    },
+    select: { id: true },
+  });
+  if (unresolvedFtm) {
+    throw new Error("Vous devez corriger ou retirer les FTMs signalés avant de re-soumettre.");
+  }
+
   // Forecast prerequisite: unless explicitly waived, a MOA_APPROVED forecast must exist
   if (!contractSettings?.forecastWaived) {
     const approvedForecast = await prisma.forecast.findFirst({
@@ -246,6 +267,7 @@ export async function submitSituationAction(raw: unknown) {
       eventType: "SUBMITTED",
       amountHtCents: situation.cumulativeAmountHtCents,
       documentName: situation.documentName,
+      documentUrl: situation.documentUrl,
       correctionComment: situation.correctionComment,
     },
   });
@@ -260,6 +282,15 @@ export async function submitSituationAction(raw: unknown) {
 
 // ─── MOE review ─────────────────────────────────────────────────────────────
 
+const MoeFtmLineReviewSchema = z.object({
+  billingId: z.string().uuid(),
+  decision: z.enum(["APPROVED", "REFUSED", "CORRECTION_NEEDED"]),
+  comment: z.string().optional().nullable(),
+}).refine(
+  (v) => v.decision !== "CORRECTION_NEEDED" || (v.comment?.trim().length ?? 0) > 0,
+  { message: "Un commentaire est obligatoire pour demander une correction d'un FTM." }
+);
+
 const MoeReviewSchema = z.object({
   situationId: z.string().uuid(),
   projectId: z.string().uuid(),
@@ -269,6 +300,7 @@ const MoeReviewSchema = z.object({
   penaltyType: z.enum(["NONE", "FREE_AMOUNT", "DAILY_RATE"]).optional().nullable(),
   penaltyDelayDays: z.number().int().min(0).optional().nullable(),
   penaltyAmountCents: z.number().int().min(0).optional().nullable(),
+  ftmReviews: z.array(MoeFtmLineReviewSchema).optional(),
 });
 
 export async function moeReviewSituationAction(raw: unknown) {
@@ -292,6 +324,16 @@ export async function moeReviewSituationAction(raw: unknown) {
     throw new Error("Seules les situations soumises peuvent être revues par le MOE.");
   }
 
+  // Consistency guard: if any FTM line was marked CORRECTION_NEEDED,
+  // the situation decision must be CORRECTION_NEEDED (or REFUSED, which supersedes).
+  const ftmReviews = data.ftmReviews ?? [];
+  const anyLineCorrection = ftmReviews.some((r) => r.decision === "CORRECTION_NEEDED");
+  if (anyLineCorrection && data.decision === "APPROVED") {
+    throw new Error(
+      "Des FTMs sont marqués à corriger. Renvoyez la situation en correction avant d'approuver."
+    );
+  }
+
   // Compute final penalty amount
   const contractSettings = await prisma.companyContractSettings.findUnique({
     where: { projectId_organizationId: { projectId: data.projectId, organizationId: situation.organizationId } },
@@ -313,23 +355,37 @@ export async function moeReviewSituationAction(raw: unknown) {
       ? SituationStatus.MOE_CORRECTION
       : SituationStatus.MOE_REFUSED;
 
-  await prisma.situationTravaux.update({
-    where: { id: data.situationId },
-    data: {
-      status: nextStatus,
-      moeStatus: data.decision,
-      moeReviewedById: member.id,
-      moeReviewedAt: new Date(),
-      moeComment: data.comment,
-      moeAdjustedAmountHtCents:
-        data.moeAdjustedAmountHtCents !== null && data.moeAdjustedAmountHtCents !== undefined
-          ? BigInt(data.moeAdjustedAmountHtCents)
-          : null,
-      penaltyType: effectivePenaltyType as "NONE" | "FREE_AMOUNT" | "DAILY_RATE",
-      penaltyDelayDays: data.penaltyDelayDays ?? null,
-      penaltyAmountCents: penaltyAmount > BigInt(0) ? penaltyAmount : null,
-    },
-  });
+  await prisma.$transaction([
+    prisma.situationTravaux.update({
+      where: { id: data.situationId },
+      data: {
+        status: nextStatus,
+        moeStatus: data.decision,
+        moeReviewedById: member.id,
+        moeReviewedAt: new Date(),
+        moeComment: data.comment,
+        moeAdjustedAmountHtCents:
+          data.moeAdjustedAmountHtCents !== null && data.moeAdjustedAmountHtCents !== undefined
+            ? BigInt(data.moeAdjustedAmountHtCents)
+            : null,
+        penaltyType: effectivePenaltyType as "NONE" | "FREE_AMOUNT" | "DAILY_RATE",
+        penaltyDelayDays: data.penaltyDelayDays ?? null,
+        penaltyAmountCents: penaltyAmount > BigInt(0) ? penaltyAmount : null,
+      },
+    }),
+    ...ftmReviews.map((r) => {
+      const newStatus =
+        r.decision === "APPROVED"
+          ? "MOE_APPROVED"
+          : r.decision === "REFUSED"
+          ? "MOE_REFUSED"
+          : "MOE_CORRECTION_NEEDED";
+      return prisma.situationFtmBilling.updateMany({
+        where: { id: r.billingId, situationId: data.situationId, status: "PENDING" },
+        data: { status: newStatus, moeComment: r.comment?.trim() || null },
+      });
+    }),
+  ]);
 
   await prisma.situationReview.create({
     data: {
@@ -357,11 +413,21 @@ export async function moeReviewSituationAction(raw: unknown) {
 
 // ─── MOA validation ──────────────────────────────────────────────────────────
 
+const MoaFtmLineReviewSchema = z.object({
+  billingId: z.string().uuid(),
+  decision: z.enum(["APPROVED", "REFUSED", "CORRECTION_NEEDED"]),
+  comment: z.string().optional().nullable(),
+}).refine(
+  (v) => v.decision !== "CORRECTION_NEEDED" || (v.comment?.trim().length ?? 0) > 0,
+  { message: "Un commentaire est obligatoire pour demander une correction d'un FTM." }
+);
+
 const MoaValidateSchema = z.object({
   situationId: z.string().uuid(),
   projectId: z.string().uuid(),
-  decision: z.enum(["APPROVED", "REFUSED"]),
+  decision: z.enum(["APPROVED", "REFUSED", "CORRECTION_NEEDED"]),
   comment: z.string().optional().nullable(),
+  ftmReviews: z.array(MoaFtmLineReviewSchema).optional(),
 });
 
 export async function moaValidateSituationAction(raw: unknown) {
@@ -374,6 +440,9 @@ export async function moaValidateSituationAction(raw: unknown) {
 
   if (data.decision === "REFUSED" && !data.comment?.trim()) {
     throw new Error("Un commentaire est obligatoire en cas de refus.");
+  }
+  if (data.decision === "CORRECTION_NEEDED" && !data.comment?.trim()) {
+    throw new Error("Un commentaire est obligatoire pour demander une correction.");
   }
 
   const member = await requireProjectMember(user.id, data.projectId);
@@ -389,26 +458,86 @@ export async function moaValidateSituationAction(raw: unknown) {
     throw new Error("Seules les situations approuvées par le MOE peuvent être validées par le MOA.");
   }
 
+  const ftmReviewsMoa = data.ftmReviews ?? [];
+  const anyLineCorrectionMoa = ftmReviewsMoa.some((r) => r.decision === "CORRECTION_NEEDED");
+  if (anyLineCorrectionMoa && data.decision === "APPROVED") {
+    throw new Error(
+      "Des FTMs sont marqués à corriger. Renvoyez la situation en correction avant d'approuver."
+    );
+  }
+
+  const ftmLineUpdates = ftmReviewsMoa.map((r) => {
+    const newStatus =
+      r.decision === "APPROVED"
+        ? "MOA_APPROVED"
+        : r.decision === "REFUSED"
+        ? "MOA_REFUSED"
+        : "MOA_CORRECTION_NEEDED";
+    return prisma.situationFtmBilling.updateMany({
+      where: { id: r.billingId, situationId: data.situationId, status: "MOE_APPROVED" },
+      data: { status: newStatus, moaComment: r.comment?.trim() || null },
+    });
+  });
+
+  // CORRECTION_NEEDED: roll situation back to MOE_CORRECTION so ENTREPRISE edits the flagged lines
+  if (data.decision === "CORRECTION_NEEDED") {
+    await prisma.$transaction([
+      prisma.situationTravaux.update({
+        where: { id: data.situationId },
+        data: {
+          status: SituationStatus.MOE_CORRECTION,
+          moaStatus: "CORRECTION_NEEDED",
+          moaValidatedById: member.id,
+          moaValidatedAt: new Date(),
+          moaComment: data.comment ?? null,
+          // Clear the MOE approval so MOE re-reviews after ENTREPRISE fixes
+          moeStatus: null,
+          moeReviewedById: null,
+          moeReviewedAt: null,
+        },
+      }),
+      prisma.situationReview.create({
+        data: {
+          situationId: data.situationId,
+          memberId: member.id,
+          eventType: "MOA_VALIDATED",
+          decision: "CORRECTION_NEEDED",
+          comment: data.comment ?? null,
+        },
+      }),
+      ...ftmLineUpdates,
+    ]);
+    await audit(user.id, "SITUATION_MOA_VALIDATED", data.situationId, {
+      decision: "CORRECTION_NEEDED",
+      comment: data.comment,
+    });
+    revalidate(data.projectId, situation.organizationId, data.situationId);
+    return;
+  }
+
   if (data.decision === "REFUSED") {
-    await prisma.situationTravaux.update({
-      where: { id: data.situationId },
-      data: {
-        status: SituationStatus.MOA_REFUSED,
-        moaStatus: "REFUSED",
-        moaValidatedById: member.id,
-        moaValidatedAt: new Date(),
-        moaComment: data.comment ?? null,
-      },
-    });
-    await prisma.situationReview.create({
-      data: {
-        situationId: data.situationId,
-        memberId: member.id,
-        eventType: "MOA_VALIDATED",
-        decision: "REFUSED",
-        comment: data.comment ?? null,
-      },
-    });
+    await prisma.$transaction([
+      prisma.situationTravaux.update({
+        where: { id: data.situationId },
+        data: {
+          status: SituationStatus.MOA_REFUSED,
+          moaStatus: "REFUSED",
+          moaValidatedById: member.id,
+          moaValidatedAt: new Date(),
+          moaComment: data.comment ?? null,
+        },
+      }),
+      prisma.situationReview.create({
+        data: {
+          situationId: data.situationId,
+          memberId: member.id,
+          eventType: "MOA_VALIDATED",
+          decision: "REFUSED",
+          comment: data.comment ?? null,
+        },
+      }),
+      ...ftmLineUpdates,
+    ]);
     await audit(user.id, "SITUATION_MOA_VALIDATED", data.situationId, {
       decision: "REFUSED",
       comment: data.comment,
@@ -417,28 +546,37 @@ export async function moaValidateSituationAction(raw: unknown) {
     return;
   }
 
+  // APPROVED path — apply per-line FTM decisions first so the snapshot reflects them
+  if (ftmLineUpdates.length > 0) {
+    await prisma.$transaction(ftmLineUpdates);
+  }
+
   // Compute and freeze financial snapshot
   const contractSettings = await prisma.companyContractSettings.findUnique({
     where: { projectId_organizationId: { projectId: data.projectId, organizationId: situation.organizationId } },
   });
 
-  const [marcheTotal, ftmTotal, pastRefunded, previousCumulative, dedicatedPenalties] =
+  const [marcheTotal, ftmTotal, pastRefunded, previousCumulative, dedicatedPenalties, ftmBillingLines] =
     await Promise.all([
       getOrgMarcheTotalCents(data.projectId, situation.organizationId),
       getOrgApprovedFtmTotalCents(data.projectId, situation.organizationId),
       getPastRefundedAmount(data.projectId, situation.organizationId, situation.numero),
       getPreviousApprovedCumulative(data.projectId, situation.organizationId, situation.numero),
       getPenaltiesForSituation(data.situationId),
+      prisma.situationFtmBilling.findMany({
+        where: { situationId: data.situationId, status: "MOA_APPROVED" },
+        select: { billedAmountCents: true },
+      }),
     ]);
 
   const totalEnveloppe = marcheTotal + ftmTotal;
-  // Legacy inline penalty (set during MOE review) + dedicated Penalty records
   const dedicatedTotal = sumActivePenalties(dedicatedPenalties);
   const penaltyAmount = (situation.penaltyAmountCents ?? BigInt(0)) + dedicatedTotal;
+  const ftmBilledTotal = ftmBillingLines.reduce((s, l) => s + l.billedAmountCents, BigInt(0));
 
   let snapshot = null;
   if (contractSettings) {
-    snapshot = computeFinancialSnapshot(
+    const base = computeFinancialSnapshot(
       {
         cumulativeAmountHtCents: situation.cumulativeAmountHtCents,
         previousCumulativeHtCents: previousCumulative,
@@ -450,6 +588,7 @@ export async function moaValidateSituationAction(raw: unknown) {
       },
       situation.moeAdjustedAmountHtCents
     );
+    snapshot = { ...base, netAmountHtCents: base.netAmountHtCents + ftmBilledTotal };
   } else {
     // No contract settings: simple period net, no deductions
     const accepted = situation.moeAdjustedAmountHtCents ?? situation.cumulativeAmountHtCents;
@@ -460,7 +599,7 @@ export async function moaValidateSituationAction(raw: unknown) {
       periodNetBeforeDeductionsHtCents: periodNet,
       retenueGarantieAmountCents: BigInt(0),
       avanceTravauxRemboursementCents: BigInt(0),
-      netAmountHtCents: periodNet - (penaltyAmount ?? BigInt(0)),
+      netAmountHtCents: periodNet - (penaltyAmount ?? BigInt(0)) + ftmBilledTotal,
     };
   }
 
@@ -477,7 +616,8 @@ export async function moaValidateSituationAction(raw: unknown) {
       periodNetBeforeDeductionsHtCents: snapshot.periodNetBeforeDeductionsHtCents,
       retenueGarantieAmountCents: snapshot.retenueGarantieAmountCents,
       avanceTravauxRemboursementCents: snapshot.avanceTravauxRemboursementCents,
-      netAmountHtCents: snapshot.netAmountHtCents,
+      ftmBilledAmountCents: ftmBilledTotal > BigInt(0) ? ftmBilledTotal : null,
+      netAmountHtCents: snapshot.netAmountHtCents + ftmBilledTotal,
     },
   });
 
@@ -497,6 +637,110 @@ export async function moaValidateSituationAction(raw: unknown) {
     netAmountHtCents: snapshot.netAmountHtCents.toString(),
   });
   revalidate(data.projectId, situation.organizationId, data.situationId);
+}
+
+// ─── FTM billing lines ───────────────────────────────────────────────────────
+
+const UpsertFtmBillingSchema = z.object({
+  situationId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  ftmRecordId: z.string().uuid(),
+  percentage: z.number().int().min(1).max(100),
+});
+
+export async function upsertSituationFtmBillingAction(raw: unknown) {
+  const user = await getAuthUser();
+  if (!user?.id) throw new Error("Non authentifié.");
+
+  const parsed = UpsertFtmBillingSchema.safeParse(raw);
+  if (!parsed.success) throw new Error("Données invalides : " + parsed.error.message);
+  const data = parsed.data;
+
+  const member = await requireProjectMember(user.id, data.projectId);
+  const allowed = await can(member.id, Capability.SUBMIT_SITUATION);
+  if (!allowed) throw new Error("Permission refusée.");
+
+  const situation = await prisma.situationTravaux.findFirst({
+    where: { id: data.situationId, projectId: data.projectId, organizationId: member.organizationId },
+    select: { status: true, organizationId: true },
+  });
+  if (!situation) throw new Error("Situation introuvable.");
+  if (situation.status !== SituationStatus.DRAFT && situation.status !== SituationStatus.MOE_CORRECTION) {
+    throw new Error("Impossible de modifier les FTMs en dehors du brouillon ou de la correction.");
+  }
+
+  // Fetch the FTM quote amount for this org
+  const acceptedFtms = await getAcceptedFtmsForOrg(data.projectId, member.organizationId);
+  const ftmEntry = acceptedFtms.find((f) => f.ftmId === data.ftmRecordId);
+  if (!ftmEntry) throw new Error("FTM introuvable ou non accepté.");
+
+  const billedAmountCents = (ftmEntry.quoteAmountCents * BigInt(data.percentage)) / BigInt(100);
+
+  // Cap check: MOA-approved billings for this FTM (excluding this situation)
+  const alreadyBilledCents = await getFtmApprovedBilledCents(
+    data.ftmRecordId,
+    member.organizationId,
+    data.situationId,
+  );
+  if (alreadyBilledCents + billedAmountCents > ftmEntry.quoteAmountCents) {
+    const remainingPercent = Number(((ftmEntry.quoteAmountCents - alreadyBilledCents) * BigInt(100)) / ftmEntry.quoteAmountCents);
+    throw new Error(
+      `Dépassement du plafond : seulement ${remainingPercent}% restant à facturer pour ce FTM.`
+    );
+  }
+
+  await prisma.situationFtmBilling.upsert({
+    where: { situationId_ftmRecordId: { situationId: data.situationId, ftmRecordId: data.ftmRecordId } },
+    create: {
+      situationId: data.situationId,
+      ftmRecordId: data.ftmRecordId,
+      organizationId: member.organizationId,
+      projectId: data.projectId,
+      percentage: data.percentage,
+      billedAmountCents,
+      status: "PENDING",
+    },
+    update: {
+      percentage: data.percentage,
+      billedAmountCents,
+      status: "PENDING",
+    },
+  });
+
+  revalidate(data.projectId, member.organizationId, data.situationId);
+}
+
+const RemoveFtmBillingSchema = z.object({
+  billingId: z.string().uuid(),
+  projectId: z.string().uuid(),
+});
+
+export async function removeSituationFtmBillingAction(raw: unknown) {
+  const user = await getAuthUser();
+  if (!user?.id) throw new Error("Non authentifié.");
+
+  const parsed = RemoveFtmBillingSchema.safeParse(raw);
+  if (!parsed.success) throw new Error("Données invalides : " + parsed.error.message);
+  const data = parsed.data;
+
+  const member = await requireProjectMember(user.id, data.projectId);
+  const allowed = await can(member.id, Capability.SUBMIT_SITUATION);
+  if (!allowed) throw new Error("Permission refusée.");
+
+  const billing = await prisma.situationFtmBilling.findFirst({
+    where: { id: data.billingId, organizationId: member.organizationId, projectId: data.projectId },
+    include: { situation: { select: { status: true, organizationId: true } } },
+  });
+  if (!billing) throw new Error("Ligne FTM introuvable.");
+  if (
+    billing.situation.status !== SituationStatus.DRAFT &&
+    billing.situation.status !== SituationStatus.MOE_CORRECTION
+  ) {
+    throw new Error("Impossible de supprimer une ligne FTM hors brouillon.");
+  }
+
+  await prisma.situationFtmBilling.delete({ where: { id: data.billingId } });
+  revalidate(data.projectId, member.organizationId, billing.situationId);
 }
 
 // ─── Document upload ─────────────────────────────────────────────────────────

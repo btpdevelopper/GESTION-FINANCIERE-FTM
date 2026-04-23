@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
 import { can } from "@/lib/permissions/resolve";
+import { getOrgMarcheTotalCents } from "@/server/situations/situation-queries";
 
 const IMMUTABLE_STATUSES = [
   ForecastStatus.MOA_APPROVED,
@@ -174,6 +175,21 @@ export async function submitForecastAction(raw: unknown) {
   });
   if (!forecast) throw new Error("Prévisionnel introuvable.");
   if (forecast.entries.length === 0) throw new Error("Ajoutez au moins une période avant de soumettre.");
+
+  const marcheTotalBigInt = await getOrgMarcheTotalCents(data.projectId, member.organizationId);
+  const marcheTotalCents = Number(marcheTotalBigInt);
+  if (marcheTotalCents > 0) {
+    const entryTotal = forecast.entries.reduce(
+      (sum, e) => sum + Number(e.plannedAmountHtCents),
+      0,
+    );
+    if (entryTotal !== marcheTotalCents) {
+      throw new Error(
+        "Le total prévu doit correspondre exactement au montant du marché avant de soumettre.",
+      );
+    }
+  }
+
   if (
     forecast.status !== ForecastStatus.DRAFT &&
     forecast.status !== ForecastStatus.MOE_CORRECTION
@@ -276,7 +292,7 @@ export async function moeReviewForecastAction(raw: unknown) {
 const MoaValidateForecastSchema = z.object({
   forecastId: z.string().uuid(),
   projectId: z.string().uuid(),
-  decision: z.enum(["APPROVED", "REFUSED"]),
+  decision: z.enum(["APPROVED", "REFUSED", "CORRECTION_NEEDED"]),
   comment: z.string().optional().nullable(),
 });
 
@@ -288,8 +304,8 @@ export async function moaValidateForecastAction(raw: unknown) {
   if (!parsed.success) throw new Error("Données invalides : " + parsed.error.message);
   const data = parsed.data;
 
-  if (data.decision === "REFUSED" && !data.comment?.trim()) {
-    throw new Error("Un commentaire est obligatoire en cas de refus.");
+  if ((data.decision === "REFUSED" || data.decision === "CORRECTION_NEEDED") && !data.comment?.trim()) {
+    throw new Error("Un commentaire est obligatoire en cas de refus ou de renvoi en correction.");
   }
 
   const member = await requireProjectMember(user.id, data.projectId);
@@ -305,7 +321,9 @@ export async function moaValidateForecastAction(raw: unknown) {
   }
 
   const nextStatus =
-    data.decision === "APPROVED" ? ForecastStatus.MOA_APPROVED : ForecastStatus.MOA_REFUSED;
+    data.decision === "APPROVED"          ? ForecastStatus.MOA_APPROVED :
+    data.decision === "CORRECTION_NEEDED" ? ForecastStatus.MOE_CORRECTION :
+    ForecastStatus.MOA_REFUSED;
 
   await prisma.forecast.update({
     where: { id: data.forecastId },
@@ -367,14 +385,26 @@ export async function createNewForecastIndiceAction(raw: unknown) {
     throw new Error("Un prévisionnel est déjà en cours. Finalisez-le avant d'en créer un nouvel indice.");
   }
 
-  // Guard: last must be MOA_APPROVED
+  // Guard: latest indice must be terminal (approved or refused)
   const lastForecast = await prisma.forecast.findFirst({
     where: { projectId: data.projectId, organizationId: orgId },
     orderBy: { indice: "desc" },
     include: { entries: true },
   });
-  if (!lastForecast || lastForecast.status !== ForecastStatus.MOA_APPROVED) {
-    throw new Error("Le dernier prévisionnel doit être validé par le MOA avant de créer un nouvel indice.");
+  const terminalStatuses: ForecastStatus[] = [
+    ForecastStatus.MOA_APPROVED,
+    ForecastStatus.MOE_REFUSED,
+    ForecastStatus.MOA_REFUSED,
+  ];
+  if (!lastForecast || !terminalStatuses.includes(lastForecast.status)) {
+    throw new Error("Le prévisionnel doit être dans un état terminal (approuvé ou refusé) avant de créer un nouvel indice.");
+  }
+  // Redundant safety: confirm no higher indice exists (defensive against race conditions)
+  const higherIndice = await prisma.forecast.findFirst({
+    where: { projectId: data.projectId, organizationId: orgId, indice: { gt: lastForecast.indice } },
+  });
+  if (higherIndice) {
+    throw new Error("Un indice plus récent existe déjà. Consultez le dernier indice pour créer un nouvel indice.");
   }
 
   const newForecast = await prisma.$transaction(async (tx) => {

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth/user";
 import { createClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
+import { DEFAULT_GROUP_NAMES, DEFAULT_ROLE_CAPABILITIES } from "@/lib/permissions/defaults";
 
 // Assumes role enum comes from prisma
 type Role = "MOA" | "MOE" | "ENTREPRISE";
@@ -73,7 +74,22 @@ export async function createProjectExecutionAction(input: {
       },
     });
 
-    // 1. Process Organizations to ensure they exist
+    // 1. Create default permission groups for each role
+    const defaultGroupIds = new Map<ProjectRole, string>();
+    for (const role of Object.values(ProjectRole)) {
+      const group = await tx.projectPermissionGroup.create({
+        data: {
+          projectId: p.id,
+          name: DEFAULT_GROUP_NAMES[role],
+          capabilities: {
+            create: DEFAULT_ROLE_CAPABILITIES[role].map((cap) => ({ capability: cap })),
+          },
+        },
+      });
+      defaultGroupIds.set(role, group.id);
+    }
+
+    // 2. Process Organizations to ensure they exist
     const orgNames = new Set<string>();
     input.lots.forEach(l => l.organizations.forEach(o => orgNames.add(o.organizationName)));
     input.users.forEach(u => orgNames.add(u.organizationName));
@@ -87,7 +103,7 @@ export async function createProjectExecutionAction(input: {
       orgMap.set(name, org.id);
     }
 
-    // 2. Process Lots & Link to Organizations
+    // 3. Process Lots & Link to Organizations
     for (const lotInput of input.lots) {
       const lot = await tx.projectLot.create({
         data: {
@@ -110,7 +126,7 @@ export async function createProjectExecutionAction(input: {
       }
     }
 
-    // 3. Process Users
+    // 4. Process Users
     for (const u of input.users) {
       const orgId = orgMap.get(u.organizationName);
       if (!orgId) continue;
@@ -136,13 +152,16 @@ export async function createProjectExecutionAction(input: {
         });
       }
 
+      const groupId =
+        u.permissionGroupId || defaultGroupIds.get(u.role as ProjectRole) || null;
+
       await tx.projectMember.create({
         data: {
           projectId: p.id,
           userId: dbUser.id,
           organizationId: orgId,
           role: u.role as ProjectRole,
-          permissionGroupId: u.permissionGroupId || null,
+          permissionGroupId: groupId,
         },
       });
     }

@@ -19,6 +19,7 @@ type Props = {
   createdAt: Date;
   orgName: string | null;
   reviews: ReviewEvent[];
+  moaStatus?: string | null;
 };
 
 function formatDate(d: Date): string {
@@ -42,11 +43,16 @@ const STEPS = [
   { id: "moa",    label: "Validation MOA",icon: BadgeCheck },
 ] as const;
 
-function getStates(status: ForecastStatus): Record<string, StepState> {
+function getStates(status: ForecastStatus, moaStatus?: string | null): Record<string, StepState> {
   switch (status) {
     case ForecastStatus.DRAFT:          return { draft: "active",   submit: "upcoming", moe: "upcoming", moa: "upcoming" };
     case ForecastStatus.SUBMITTED:      return { draft: "complete", submit: "active",   moe: "upcoming", moa: "upcoming" };
-    case ForecastStatus.MOE_CORRECTION: return { draft: "complete", submit: "warning",  moe: "warning",  moa: "upcoming" };
+    case ForecastStatus.MOE_CORRECTION:
+      // MOA sent back for correction → MOA step is warning, MOE was complete
+      if (moaStatus === "CORRECTION_NEEDED") {
+        return { draft: "complete", submit: "warning", moe: "complete", moa: "warning" };
+      }
+      return { draft: "complete", submit: "warning",  moe: "warning",  moa: "upcoming" };
     case ForecastStatus.MOE_APPROVED:   return { draft: "complete", submit: "complete", moe: "complete", moa: "active"   };
     case ForecastStatus.MOE_REFUSED:    return { draft: "complete", submit: "complete", moe: "error",    moa: "upcoming" };
     case ForecastStatus.MOA_APPROVED:   return { draft: "complete", submit: "complete", moe: "complete", moa: "complete" };
@@ -78,8 +84,8 @@ const CONNECTOR: Record<StepState, string> = {
   upcoming: "bg-slate-200 dark:bg-slate-700",
 };
 
-function HorizontalProgress({ status }: { status: ForecastStatus }) {
-  const states = getStates(status);
+function HorizontalProgress({ status, moaStatus }: { status: ForecastStatus; moaStatus?: string | null }) {
+  const states = getStates(status, moaStatus);
   return (
     <div className="flex items-center">
       {STEPS.map((step, i) => {
@@ -133,11 +139,13 @@ function EventRow({ icon, iconBg, title, subtitle, isLast, children }: {
   );
 }
 
-export function ForecastTimeline({ status, indice, createdAt, orgName, reviews }: Props) {
+export function ForecastTimeline({ status, indice, createdAt, orgName, reviews, moaStatus }: Props) {
   return (
     <div className="rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
       <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
-        <HorizontalProgress status={status} />
+        <div className="max-w-sm mx-auto">
+          <HorizontalProgress status={status} moaStatus={moaStatus} />
+        </div>
       </div>
 
       <div className="px-4 py-4">
@@ -205,13 +213,22 @@ export function ForecastTimeline({ status, indice, createdAt, orgName, reviews }
           }
 
           if (event.eventType === "MOA_VALIDATED") {
-            const isApproved = event.decision === "APPROVED";
+            const isApproved   = event.decision === "APPROVED";
+            const isCorrection = event.decision === "CORRECTION_NEEDED";
             return (
               <EventRow
                 key={event.id}
-                icon={isApproved ? <Check className="h-3 w-3 text-white" strokeWidth={2.5} /> : <X className="h-3 w-3 text-white" strokeWidth={2.5} />}
-                iconBg={isApproved ? "bg-green-600" : "bg-red-600"}
-                title={isApproved ? "Validé par le MOA" : "Refusé par le MOA"}
+                icon={
+                  isApproved   ? <Check className="h-3 w-3 text-white" strokeWidth={2.5} /> :
+                  isCorrection ? <AlertTriangle className="h-3 w-3 text-white" /> :
+                  <X className="h-3 w-3 text-white" strokeWidth={2.5} />
+                }
+                iconBg={isApproved ? "bg-green-600" : isCorrection ? "bg-amber-500" : "bg-red-600"}
+                title={
+                  isApproved   ? "Validé par le MOA" :
+                  isCorrection ? "Correction demandée par le MOA" :
+                  "Refusé par le MOA"
+                }
                 subtitle={`${personName(event.member)} · ${formatDate(event.createdAt)}`}
                 isLast={isLast}
               >

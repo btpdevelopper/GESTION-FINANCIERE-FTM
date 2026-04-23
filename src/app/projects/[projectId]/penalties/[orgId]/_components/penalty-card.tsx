@@ -47,6 +47,7 @@ interface Props {
   canContest: boolean;
   marcheTotalCents: number;
   approvedFtmTotalCents: number;
+  activePenaltiesTotalCents: number;
 }
 
 function formatEurNum(cents: number): string {
@@ -104,6 +105,7 @@ export function PenaltyCard({
   canContest,
   marcheTotalCents,
   approvedFtmTotalCents,
+  activePenaltiesTotalCents,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -132,7 +134,7 @@ export function PenaltyCard({
       editPreviewCents = Math.round(editParsed * 100);
     } else {
       const base = editAmountType === "PCT_ACTUAL_MARCHE"
-        ? marcheTotalCents + approvedFtmTotalCents
+        ? marcheTotalCents + approvedFtmTotalCents - activePenaltiesTotalCents
         : marcheTotalCents;
       editPreviewCents = Math.round((base * editParsed) / 100);
     }
@@ -381,23 +383,35 @@ export function PenaltyCard({
             {/* MOA: review SUBMITTED */}
             {canMoaValidate && penalty.status === PenaltyStatus.SUBMITTED && (
               <div className="w-full space-y-2">
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    disabled={isPending}
-                    onClick={() => setMoaDecision("APPROVED")}
-                  >
-                    Approuver
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    disabled={isPending}
-                    onClick={() => setMoaDecision("REFUSED")}
-                  >
-                    Refuser
-                  </Button>
-                </div>
+                {!moaDecision && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={isPending}
+                      onClick={() => setMoaDecision("APPROVED")}
+                    >
+                      Approuver
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={isPending}
+                      onClick={() => setMoaDecision("REFUSED")}
+                    >
+                      Refuser
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={isPending}
+                      onClick={() =>
+                        run(() => cancelPenaltyAction({ penaltyId: penalty.id, projectId, comment: null }))
+                      }
+                    >
+                      Annuler la pénalité
+                    </Button>
+                  </div>
+                )}
                 {moaDecision && (
                   <div className="space-y-2">
                     <textarea
@@ -531,7 +545,7 @@ export function PenaltyCard({
               </Button>
             )}
             {canMoaValidate &&
-              !(["MOA_REFUSED", "CANCELLED", "MAINTAINED"] as string[]).includes(penalty.status) && (
+              !(["SUBMITTED", "MOA_REFUSED", "CANCELLED", "MAINTAINED"] as string[]).includes(penalty.status) && (
               <Button
                 size="sm"
                 variant="danger"

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
 import { getCompanyPenalties, getEligibleSituationsForPenalty, getOwnPenalties } from "@/server/penalties/penalty-queries";
-import { getOrgMarcheTotalCents, getOrgApprovedFtmTotalCents } from "@/server/situations/situation-queries";
+import { getOrgMarcheTotalCents, getOrgApprovedFtmTotalCents, getOrgActivePenaltiesTotalCents } from "@/server/situations/situation-queries";
 import { Capability, PenaltyStatus, ProjectRole } from "@prisma/client";
 import { can } from "@/lib/permissions/resolve";
 import { prisma } from "@/lib/prisma";
@@ -42,17 +42,23 @@ export default async function PenaltyCompanyPage({
     can(pm.id, Capability.CONTEST_PENALTY),
   ]);
 
-  const [penalties, situations, marcheCents, ftmCents, org] = await Promise.all([
+  const [penalties, situations, marcheCents, ftmCents, activePenaltiesCents, org] = await Promise.all([
     isEntreprise
       ? getOwnPenalties(projectId, orgId)
       : getCompanyPenalties(projectId, orgId),
     !isEntreprise ? getEligibleSituationsForPenalty(projectId, orgId) : Promise.resolve([]),
     getOrgMarcheTotalCents(projectId, orgId),
     getOrgApprovedFtmTotalCents(projectId, orgId),
+    getOrgActivePenaltiesTotalCents(projectId, orgId),
     prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
   ]);
 
   if (!org) notFound();
+
+  const marcheNum = Number(marcheCents);
+  const ftmNum = Number(ftmCents);
+  const activePenaltiesNum = Number(activePenaltiesCents);
+  const effectiveMarcheNum = marcheNum + ftmNum - activePenaltiesNum;
 
   const activePenalties = penalties.filter((p) => ACTIVE_STATUSES.has(p.status));
   const totalActiveCents = activePenalties.reduce(
@@ -79,14 +85,19 @@ export default async function PenaltyCompanyPage({
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
               Pénalités — {org.name}
             </h1>
-            <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-slate-500">
-              <span>Marché de base : {formatEur(Number(marcheCents))}</span>
-              {Number(ftmCents) > 0 && (
-                <span>+ FTMs acceptés : {formatEur(Number(ftmCents))}</span>
+            <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+              <span>Marché de base : {formatEur(marcheNum)}</span>
+              {ftmNum > 0 && (
+                <span>+ FTMs : {formatEur(ftmNum)}</span>
               )}
-              {totalActiveCents > 0 && (
-                <span className="font-semibold text-red-600 dark:text-red-400">
-                  Total actif : {formatEur(totalActiveCents)}
+              {activePenaltiesNum > 0 && (
+                <span className="text-red-600 dark:text-red-400">
+                  − Pénalités actives : {formatEur(activePenaltiesNum)}
+                </span>
+              )}
+              {activePenaltiesNum > 0 && (
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  = Marché effectif : {formatEur(effectiveMarcheNum)}
                 </span>
               )}
             </div>
@@ -99,8 +110,9 @@ export default async function PenaltyCompanyPage({
         <CreatePenaltyForm
           projectId={projectId}
           organizationId={orgId}
-          marcheTotalCents={Number(marcheCents)}
-          approvedFtmTotalCents={Number(ftmCents)}
+          marcheTotalCents={marcheNum}
+          approvedFtmTotalCents={ftmNum}
+          activePenaltiesTotalCents={activePenaltiesNum}
           eligibleSituations={situations}
         />
       )}
@@ -124,8 +136,9 @@ export default async function PenaltyCompanyPage({
               canCreate={canCreate}
               canMoaValidate={canMoaValidate}
               canContest={canContest && isEntreprise}
-              marcheTotalCents={Number(marcheCents)}
-              approvedFtmTotalCents={Number(ftmCents)}
+              marcheTotalCents={marcheNum}
+              approvedFtmTotalCents={ftmNum}
+              activePenaltiesTotalCents={activePenaltiesNum}
             />
           ))}
         </div>

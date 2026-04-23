@@ -12,6 +12,7 @@ interface Props {
   organizationId: string;
   marcheTotalCents: number;
   approvedFtmTotalCents: number;
+  activePenaltiesTotalCents: number;
   eligibleSituations: Situation[];
 }
 
@@ -36,6 +37,7 @@ export function CreatePenaltyForm({
   organizationId,
   marcheTotalCents,
   approvedFtmTotalCents,
+  activePenaltiesTotalCents,
   eligibleSituations,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -58,7 +60,7 @@ export function CreatePenaltyForm({
     } else {
       const base =
         amountType === "PCT_ACTUAL_MARCHE"
-          ? marcheTotalCents + approvedFtmTotalCents
+          ? marcheTotalCents + approvedFtmTotalCents - activePenaltiesTotalCents
           : marcheTotalCents;
       previewCents = Math.round((base * parsed) / 100);
     }
@@ -187,7 +189,7 @@ export function CreatePenaltyForm({
                     {" "}(base :{" "}
                     {formatEur(
                       amountType === "PCT_ACTUAL_MARCHE"
-                        ? marcheTotalCents + approvedFtmTotalCents
+                        ? marcheTotalCents + approvedFtmTotalCents - activePenaltiesTotalCents
                         : marcheTotalCents,
                     )}
                     )

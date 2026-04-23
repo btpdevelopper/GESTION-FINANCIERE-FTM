@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
-import { getSituationsForOrg, getOrgMarcheTotalCents } from "@/server/situations/situation-queries";
+import { getSituationsForOrg, getOrgMarcheTotalCents, getOrgApprovedFtmTotalCents, getOrgActivePenaltiesTotalCents } from "@/server/situations/situation-queries";
 import { prisma } from "@/lib/prisma";
 import { Capability, ForecastStatus, ProjectRole, SituationStatus } from "@prisma/client";
 import { can } from "@/lib/permissions/resolve";
@@ -50,7 +50,7 @@ export default async function OrgSituationsPage({
 
   if (pm.role === ProjectRole.ENTREPRISE && pm.organizationId !== orgId) notFound();
 
-  const [project, org, situations, canSubmit, contractSettings, approvedForecast, marcheTotalBigInt] = await Promise.all([
+  const [project, org, situations, canSubmit, contractSettings, approvedForecast, marcheTotalBigInt, ftmTotalBigInt, activePenaltiesBigInt] = await Promise.all([
     prisma.project.findUnique({ where: { id: projectId }, select: { name: true } }),
     prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
     getSituationsForOrg(projectId, orgId),
@@ -68,10 +68,15 @@ export default async function OrgSituationsPage({
       },
     }),
     getOrgMarcheTotalCents(projectId, orgId),
+    getOrgApprovedFtmTotalCents(projectId, orgId),
+    getOrgActivePenaltiesTotalCents(projectId, orgId),
   ]);
 
   if (!project || !org) notFound();
   const marcheTotalCents = Number(marcheTotalBigInt);
+  const ftmTotalCents = Number(ftmTotalBigInt);
+  const activePenaltiesCents = Number(activePenaltiesBigInt);
+  const effectiveMarcheCents = marcheTotalCents + ftmTotalCents - activePenaltiesCents;
 
   const forecastOk = contractSettings?.forecastWaived === true || approvedForecast !== null;
 
@@ -110,7 +115,18 @@ export default async function OrgSituationsPage({
         <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
           Situations — {org.name}
         </h1>
-        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{project.name}</p>
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+          <span>Marché de base : <strong className="text-slate-700 dark:text-slate-300">{formatEur(marcheTotalBigInt)}</strong></span>
+          {ftmTotalCents > 0 && (
+            <span>+ FTMs : <strong className="text-slate-700 dark:text-slate-300">{formatEur(ftmTotalBigInt)}</strong></span>
+          )}
+          {activePenaltiesCents > 0 && (
+            <span>− Pénalités : <strong className="text-red-600 dark:text-red-400">{formatEur(activePenaltiesBigInt)}</strong></span>
+          )}
+          {(ftmTotalCents > 0 || activePenaltiesCents > 0) && (
+            <span>= Marché effectif : <strong className={activePenaltiesCents > 0 ? "text-slate-900 dark:text-slate-100" : "text-slate-700 dark:text-slate-300"}>{(effectiveMarcheCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></span>
+          )}
+        </div>
       </div>
 
       {canSubmit && !forecastOk && (

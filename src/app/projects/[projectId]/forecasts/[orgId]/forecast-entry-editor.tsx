@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { saveForecastEntriesAction, submitForecastAction } from "@/server/forecast/forecast-actions";
 import { Plus, Trash2, Loader2, AlertTriangle } from "lucide-react";
@@ -18,6 +18,34 @@ type Props = {
 
 function formatEur(cents: number): string {
   return (cents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+}
+
+function AmountInput({ cents, onCommit }: { cents: number; onCommit: (raw: string) => void }) {
+  const [raw, setRaw] = useState<string | null>(null);
+  const ref = useRef<HTMLInputElement>(null);
+
+  const displayValue = raw ?? (cents / 100).toFixed(2);
+
+  return (
+    <input
+      ref={ref}
+      type="number"
+      min="0"
+      step="0.01"
+      value={displayValue}
+      onChange={(e) => setRaw(e.target.value)}
+      onFocus={() => {
+        const initial = cents === 0 ? "" : (cents / 100).toFixed(2);
+        setRaw(initial);
+        requestAnimationFrame(() => ref.current?.select());
+      }}
+      onBlur={() => {
+        onCommit(raw ?? "");
+        setRaw(null);
+      }}
+      className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+    />
+  );
 }
 
 function formatPeriod(p: string): string {
@@ -101,7 +129,7 @@ export function ForecastEntryEditor({
   async function handleSubmit() {
     setError(null);
     setSuccess(null);
-    if (!forecastId) { setError("Enregistrez d'abord les entrées."); return; }
+    if (hasDuplicates) { setError("Des périodes en double sont présentes."); return; }
     if (isCorrection && !correctionComment.trim()) {
       setError("Un commentaire est obligatoire lors d'une resoumission après correction.");
       return;
@@ -109,8 +137,9 @@ export function ForecastEntryEditor({
     setPendingAction("submit");
     startTransition(async () => {
       try {
+        const savedId = await saveForecastEntriesAction({ projectId, entries });
         await submitForecastAction({
-          forecastId,
+          forecastId: savedId,
           projectId,
           correctionComment: correctionComment || null,
         });
@@ -179,13 +208,9 @@ export function ForecastEntryEditor({
                   )}
                 </td>
                 <td className="py-1.5 pr-3">
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={(entry.plannedAmountHtCents / 100).toFixed(2)}
-                    onChange={(e) => updateAmount(i, e.target.value)}
-                    className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  <AmountInput
+                    cents={entry.plannedAmountHtCents}
+                    onCommit={(raw) => updateAmount(i, raw)}
                   />
                 </td>
                 <td className="py-1.5">
@@ -261,9 +286,10 @@ export function ForecastEntryEditor({
         </button>
         <button
           type="button"
-          disabled={isPending}
+          disabled={isPending || showWarning}
+          title={showWarning ? "Le total prévu doit correspondre au montant du marché avant de soumettre." : undefined}
           onClick={handleSubmit}
-          className="inline-flex items-center gap-1.5 rounded bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-600 disabled:opacity-50 transition-colors"
+          className="inline-flex items-center gap-1.5 rounded bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {pendingAction === "submit" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {pendingAction === "submit" ? "Envoi…" : "Soumettre au MOE"}

@@ -118,6 +118,68 @@ export async function getOrgMarcheTotalCents(
   return result._sum.montantMarcheHtCents ?? BigInt(0);
 }
 
+/** ACCEPTED FTMs for a company with their approved quote amount — used for billing picker. */
+export async function getAcceptedFtmsForOrg(projectId: string, orgId: string) {
+  const submissions = await prisma.ftmQuoteSubmission.findMany({
+    where: { organizationId: orgId, ftm: { projectId, phase: "ACCEPTED" } },
+    select: {
+      ftmId: true,
+      amountHtCents: true,
+      ftm: { select: { id: true, title: true, number: true } },
+    },
+  });
+
+  // One entry per FTM (take latest submission by amountHtCents sum per ftm)
+  const byFtm = new Map<string, { ftmId: string; title: string; number: number; quoteAmountCents: bigint }>();
+  for (const s of submissions) {
+    const existing = byFtm.get(s.ftmId);
+    if (!existing || s.amountHtCents > existing.quoteAmountCents) {
+      byFtm.set(s.ftmId, {
+        ftmId: s.ftmId,
+        title: s.ftm.title,
+        number: s.ftm.number,
+        quoteAmountCents: s.amountHtCents,
+      });
+    }
+  }
+  return [...byFtm.values()];
+}
+
+/** Sum of billedAmountCents for MOA_APPROVED billings of a given FTM for an org.
+ *  Pass excludeSituationId to exclude the current situation when editing. */
+export async function getFtmApprovedBilledCents(
+  ftmRecordId: string,
+  orgId: string,
+  excludeSituationId?: string,
+): Promise<bigint> {
+  const result = await prisma.situationFtmBilling.aggregate({
+    where: {
+      ftmRecordId,
+      organizationId: orgId,
+      status: "MOA_APPROVED",
+      ...(excludeSituationId ? { situationId: { not: excludeSituationId } } : {}),
+    },
+    _sum: { billedAmountCents: true },
+  });
+  return result._sum.billedAmountCents ?? BigInt(0);
+}
+
+/** Sum of frozenAmountCents for all active (MOA_APPROVED + MAINTAINED) penalties for a company */
+export async function getOrgActivePenaltiesTotalCents(
+  projectId: string,
+  orgId: string,
+): Promise<bigint> {
+  const result = await prisma.penalty.aggregate({
+    where: {
+      projectId,
+      organizationId: orgId,
+      status: { in: ["MOA_APPROVED", "MAINTAINED"] },
+    },
+    _sum: { frozenAmountCents: true },
+  });
+  return result._sum.frozenAmountCents ?? BigInt(0);
+}
+
 /** Sum of avanceTravauxRemboursementCents from all MOA_APPROVED situations before this one */
 export async function getPastRefundedAmount(
   projectId: string,

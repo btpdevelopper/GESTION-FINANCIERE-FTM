@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { SituationEventType, SituationStatus } from "@prisma/client";
 import {
   Send,
@@ -8,6 +11,8 @@ import {
   X,
   AlertTriangle,
   Clock,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 type ReviewMember = {
@@ -21,6 +26,7 @@ type ReviewEvent = {
   member: ReviewMember;
   amountHtCents: bigint | null;
   documentName: string | null;
+  documentUrl: string | null;
   correctionComment: string | null;
   decision: string | null;
   comment: string | null;
@@ -30,9 +36,12 @@ type ReviewEvent = {
 
 type Props = {
   status: SituationStatus;
+  moaStatus?: string | null;
   createdAt: Date;
   orgName: string | null;
   reviews: ReviewEvent[];
+  ftmDeclaredCents?: bigint;
+  reviewDocumentUrls?: Record<string, string>;
 };
 
 function formatEur(cents: bigint | null | undefined): string {
@@ -66,13 +75,19 @@ const STEPS = [
   { id: "moa", label: "Validation MOA", icon: BadgeCheck },
 ] as const;
 
-function getStepStates(status: SituationStatus): Record<string, StepState> {
+function getStepStates(
+  status: SituationStatus,
+  moaStatus?: string | null,
+): Record<string, StepState> {
   switch (status) {
     case SituationStatus.DRAFT:
       return { draft: "active", submit: "upcoming", moe: "upcoming", moa: "upcoming" };
     case SituationStatus.SUBMITTED:
       return { draft: "complete", submit: "active", moe: "upcoming", moa: "upcoming" };
     case SituationStatus.MOE_CORRECTION:
+      if (moaStatus === "CORRECTION_NEEDED") {
+        return { draft: "complete", submit: "warning", moe: "complete", moa: "warning" };
+      }
       return { draft: "complete", submit: "warning", moe: "warning", moa: "upcoming" };
     case SituationStatus.MOE_APPROVED:
       return { draft: "complete", submit: "complete", moe: "complete", moa: "active" };
@@ -111,8 +126,14 @@ const CONNECTOR: Record<StepState, string> = {
   upcoming: "bg-slate-200 dark:bg-slate-700",
 };
 
-function HorizontalProgress({ status }: { status: SituationStatus }) {
-  const states = getStepStates(status);
+function HorizontalProgress({
+  status,
+  moaStatus,
+}: {
+  status: SituationStatus;
+  moaStatus?: string | null;
+}) {
+  const states = getStepStates(status, moaStatus);
 
   return (
     <div className="flex items-center">
@@ -124,7 +145,6 @@ function HorizontalProgress({ status }: { status: SituationStatus }) {
 
         return (
           <div key={step.id} className="flex flex-1 items-center">
-            {/* Node + label */}
             <div className="flex flex-col items-center gap-1.5 min-w-0">
               <div
                 className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 ${STATE_RING[state]}`}
@@ -140,7 +160,6 @@ function HorizontalProgress({ status }: { status: SituationStatus }) {
               </span>
             </div>
 
-            {/* Connector */}
             {!isLast && (
               <div className={`mx-1 mb-5 h-0.5 flex-1 ${CONNECTOR[connectorState]}`} />
             )}
@@ -151,7 +170,7 @@ function HorizontalProgress({ status }: { status: SituationStatus }) {
   );
 }
 
-// ─── Event log ───────────────────────────────────────────────────────────────
+// ─── Event log rows ───────────────────────────────────────────────────────────
 
 function EventRow({
   icon,
@@ -193,15 +212,20 @@ function SubmittedRow({
   event,
   prevMoeEvent,
   isLast,
+  ftmDeclaredCents,
+  docUrl,
 }: {
   event: ReviewEvent;
   prevMoeEvent: ReviewEvent | null;
   isLast: boolean;
+  ftmDeclaredCents: bigint;
+  docUrl?: string;
 }) {
   const hasMoeAdjusted = prevMoeEvent?.adjustedAmountHtCents != null;
   const acceptedMoeAmount =
-    hasMoeAdjusted &&
-    event.amountHtCents === prevMoeEvent!.adjustedAmountHtCents;
+    hasMoeAdjusted && event.amountHtCents === prevMoeEvent!.adjustedAmountHtCents;
+  const worksCents = event.amountHtCents ?? BigInt(0);
+  const declaredTotal = worksCents + ftmDeclaredCents;
 
   return (
     <EventRow
@@ -214,9 +238,14 @@ function SubmittedRow({
       <p className="text-xs text-slate-600 dark:text-slate-400">
         Montant déclaré :{" "}
         <span className="font-medium text-slate-800 dark:text-slate-200">
-          {formatEur(event.amountHtCents)}
+          {formatEur(declaredTotal)}
         </span>
       </p>
+      {ftmDeclaredCents > BigInt(0) && (
+        <p className="text-[11px] text-slate-500">
+          dont travaux {formatEur(worksCents)} + FTMs {formatEur(ftmDeclaredCents)}
+        </p>
+      )}
       {hasMoeAdjusted && (
         <span
           className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
@@ -239,31 +268,30 @@ function SubmittedRow({
       )}
       {event.documentName && (
         <p className="flex items-center gap-1 text-[11px] text-slate-500">
-          <FileText className="h-3 w-3" />
-          {event.documentName}
+          <FileText className="h-3 w-3 shrink-0" />
+          {docUrl ? (
+            <a
+              href={docUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-slate-700 dark:hover:text-slate-300 truncate"
+            >
+              {event.documentName}
+            </a>
+          ) : (
+            event.documentName
+          )}
         </p>
       )}
     </EventRow>
   );
 }
 
-function MoeReviewRow({
-  event,
-  isLast,
-}: {
-  event: ReviewEvent;
-  isLast: boolean;
-}) {
+function MoeReviewRow({ event, isLast }: { event: ReviewEvent; isLast: boolean }) {
   const isApproved = event.decision === "APPROVED";
   const isRefused = event.decision === "REFUSED";
-  const isCorrection = event.decision === "CORRECTION_NEEDED";
 
-  const bg = isApproved
-    ? "bg-green-600"
-    : isRefused
-    ? "bg-red-600"
-    : "bg-amber-500";
-
+  const bg = isApproved ? "bg-green-600" : isRefused ? "bg-red-600" : "bg-amber-500";
   const icon = isApproved ? (
     <Check className="h-3 w-3 text-white" strokeWidth={2.5} />
   ) : isRefused ? (
@@ -271,7 +299,6 @@ function MoeReviewRow({
   ) : (
     <AlertTriangle className="h-3 w-3 text-white" />
   );
-
   const title = isApproved
     ? "Approuvé par le MOE"
     : isRefused
@@ -308,26 +335,29 @@ function MoeReviewRow({
   );
 }
 
-function MoaValidatedRow({
-  event,
-  isLast,
-}: {
-  event: ReviewEvent;
-  isLast: boolean;
-}) {
+function MoaValidatedRow({ event, isLast }: { event: ReviewEvent; isLast: boolean }) {
   const isApproved = event.decision === "APPROVED";
+  const isCorrection = event.decision === "CORRECTION_NEEDED";
+
+  const bg = isApproved ? "bg-green-600" : isCorrection ? "bg-amber-500" : "bg-red-600";
+  const icon = isApproved ? (
+    <Check className="h-3 w-3 text-white" strokeWidth={2.5} />
+  ) : isCorrection ? (
+    <AlertTriangle className="h-3 w-3 text-white" />
+  ) : (
+    <X className="h-3 w-3 text-white" strokeWidth={2.5} />
+  );
+  const title = isApproved
+    ? "Validé par le MOA"
+    : isCorrection
+    ? "Correction demandée par le MOA"
+    : "Refusé par le MOA";
 
   return (
     <EventRow
-      icon={
-        isApproved ? (
-          <Check className="h-3 w-3 text-white" strokeWidth={2.5} />
-        ) : (
-          <X className="h-3 w-3 text-white" strokeWidth={2.5} />
-        )
-      }
-      iconBg={isApproved ? "bg-green-600" : "bg-red-600"}
-      title={isApproved ? "Validé par le MOA" : "Refusé par le MOA"}
+      icon={icon}
+      iconBg={bg}
+      title={title}
       subtitle={`${personName(event.member)} · ${formatDate(event.createdAt)}`}
       isLast={isLast}
     >
@@ -342,14 +372,90 @@ function MoaValidatedRow({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function SituationTimeline({ status, createdAt, orgName, reviews }: Props) {
-  const allEvents = reviews.length;
+const VISIBLE_LIMIT = 4;
+
+export function SituationTimeline({
+  status,
+  moaStatus,
+  createdAt,
+  orgName,
+  reviews,
+  ftmDeclaredCents = BigInt(0),
+  reviewDocumentUrls = {},
+}: Props) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Build a flat list: synthetic draft entry + all review events
+  type Item =
+    | { kind: "draft" }
+    | { kind: "review"; event: ReviewEvent; reviewIndex: number };
+
+  const allItems: Item[] = [
+    { kind: "draft" },
+    ...reviews.map((event, reviewIndex) => ({
+      kind: "review" as const,
+      event,
+      reviewIndex,
+    })),
+  ];
+
+  const needsCollapse = allItems.length > VISIBLE_LIMIT;
+  const hiddenCount = needsCollapse ? allItems.length - VISIBLE_LIMIT : 0;
+  const visibleItems = needsCollapse && !expanded
+    ? allItems.slice(-VISIBLE_LIMIT)
+    : allItems;
+
+  function renderItem(item: Item, isLast: boolean) {
+    if (item.kind === "draft") {
+      return (
+        <EventRow
+          key="draft"
+          icon={<FileText className="h-3 w-3 text-slate-500 dark:text-slate-400" />}
+          iconBg="bg-slate-100 dark:bg-slate-700"
+          title="Brouillon créé"
+          subtitle={`${orgName ?? "Entreprise"} · ${formatDate(createdAt)}`}
+          isLast={isLast}
+        />
+      );
+    }
+
+    const { event, reviewIndex } = item;
+    const prevMoeEvent =
+      event.eventType === "SUBMITTED"
+        ? (reviews
+            .slice(0, reviewIndex)
+            .reverse()
+            .find((r) => r.eventType === "MOE_REVIEWED") ?? null)
+        : null;
+
+    if (event.eventType === "SUBMITTED") {
+      return (
+        <SubmittedRow
+          key={event.id}
+          event={event}
+          prevMoeEvent={prevMoeEvent}
+          isLast={isLast}
+          ftmDeclaredCents={ftmDeclaredCents}
+          docUrl={reviewDocumentUrls[event.id]}
+        />
+      );
+    }
+    if (event.eventType === "MOE_REVIEWED") {
+      return <MoeReviewRow key={event.id} event={event} isLast={isLast} />;
+    }
+    if (event.eventType === "MOA_VALIDATED") {
+      return <MoaValidatedRow key={event.id} event={event} isLast={isLast} />;
+    }
+    return null;
+  }
 
   return (
     <div className="rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
       {/* Horizontal progress */}
       <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
-        <HorizontalProgress status={status} />
+        <div className="max-w-sm mx-auto">
+          <HorizontalProgress status={status} moaStatus={moaStatus} />
+        </div>
       </div>
 
       {/* Event log */}
@@ -358,47 +464,34 @@ export function SituationTimeline({ status, createdAt, orgName, reviews }: Props
           Historique
         </p>
 
-        {/* Draft created — synthetic first row */}
-        <EventRow
-          icon={<FileText className="h-3 w-3 text-slate-500 dark:text-slate-400" />}
-          iconBg="bg-slate-100 dark:bg-slate-700"
-          title="Brouillon créé"
-          subtitle={`${orgName ?? "Entreprise"} · ${formatDate(createdAt)}`}
-          isLast={allEvents === 0}
-        />
+        {/* Collapse toggle */}
+        {needsCollapse && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="mb-3 flex items-center gap-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+          >
+            {expanded ? (
+              <>
+                <ChevronUp className="h-3.5 w-3.5" />
+                Masquer les actions anciennes
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-3.5 w-3.5" />
+                {hiddenCount} action{hiddenCount > 1 ? "s" : ""} masquée{hiddenCount > 1 ? "s" : ""}
+              </>
+            )}
+          </button>
+        )}
 
-        {allEvents === 0 && (
+        {reviews.length === 0 && (
           <p className="mt-1 text-xs italic text-slate-400">Aucune soumission encore effectuée.</p>
         )}
 
-        {reviews.map((event, i) => {
-          const isLast = i === allEvents - 1;
-
-          const prevMoeEvent =
-            event.eventType === "SUBMITTED"
-              ? (reviews
-                  .slice(0, i)
-                  .reverse()
-                  .find((r) => r.eventType === "MOE_REVIEWED") ?? null)
-              : null;
-
-          if (event.eventType === "SUBMITTED") {
-            return (
-              <SubmittedRow
-                key={event.id}
-                event={event}
-                prevMoeEvent={prevMoeEvent}
-                isLast={isLast}
-              />
-            );
-          }
-          if (event.eventType === "MOE_REVIEWED") {
-            return <MoeReviewRow key={event.id} event={event} isLast={isLast} />;
-          }
-          if (event.eventType === "MOA_VALIDATED") {
-            return <MoaValidatedRow key={event.id} event={event} isLast={isLast} />;
-          }
-          return null;
+        {visibleItems.map((item, i) => {
+          const isLast = i === visibleItems.length - 1;
+          return renderItem(item, isLast);
         })}
       </div>
     </div>

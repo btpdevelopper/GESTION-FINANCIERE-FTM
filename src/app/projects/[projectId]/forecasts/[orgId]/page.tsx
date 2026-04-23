@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
+import { prisma } from "@/lib/prisma";
 import { getForecast, getForecastIndices } from "@/server/forecast/forecast-queries";
 import { getOrgMarcheTotalCents } from "@/server/situations/situation-queries";
 import { Capability, ForecastStatus, ProjectRole } from "@prisma/client";
@@ -45,10 +46,15 @@ const TERMINAL = new Set<ForecastStatus>([
 
 export default async function ForecastDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string; orgId: string }>;
+  searchParams: Promise<{ indice?: string }>;
 }) {
   const { projectId, orgId } = await params;
+  const { indice: indiceParam } = await searchParams;
+  const requestedIndice = indiceParam ? parseInt(indiceParam, 10) : undefined;
+
   const user = await getAuthUser();
   if (!user?.id) notFound();
 
@@ -56,14 +62,15 @@ export default async function ForecastDetailPage({
 
   if (pm.role === ProjectRole.ENTREPRISE && pm.organizationId !== orgId) notFound();
 
-  const [forecast, indices, marcheTotalBigInt, canSubmit, canMoeReview, canMoaValidate] =
+  const [forecast, indices, marcheTotalBigInt, canSubmit, canMoeReview, canMoaValidate, org] =
     await Promise.all([
-      getForecast(projectId, orgId),
+      getForecast(projectId, orgId, requestedIndice),
       getForecastIndices(projectId, orgId),
       getOrgMarcheTotalCents(projectId, orgId),
       can(pm.id, Capability.SUBMIT_FORECAST),
       can(pm.id, Capability.REVIEW_FORECAST_MOE),
       can(pm.id, Capability.VALIDATE_FORECAST_MOA),
+      prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
     ]);
   const marcheTotalCents = Number(marcheTotalBigInt);
 
@@ -78,11 +85,15 @@ export default async function ForecastDetailPage({
 
   const isCorrection = forecast?.status === ForecastStatus.MOE_CORRECTION;
 
+  const latestIndice = indices.length > 0 ? Math.max(...indices.map((i) => i.indice)) : 0;
   const canCreateNewIndice =
     canSubmit &&
     isEntreprise &&
     !!forecast &&
-    forecast.status === ForecastStatus.MOA_APPROVED;
+    forecast.indice === latestIndice &&
+    (forecast.status === ForecastStatus.MOA_APPROVED ||
+      forecast.status === ForecastStatus.MOE_REFUSED ||
+      forecast.status === ForecastStatus.MOA_REFUSED);
 
   return (
     <div className="max-w-3xl space-y-5">
@@ -96,7 +107,7 @@ export default async function ForecastDetailPage({
         </Link>
         <div className="mt-1.5 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-            Prévisionnel — {forecast?.organization?.name ?? orgId}
+            Prévisionnel — {forecast?.organization?.name ?? org?.name ?? orgId}
           </h1>
           {forecast && (
             <span
@@ -162,8 +173,22 @@ export default async function ForecastDetailPage({
           createdAt={forecast.createdAt}
           orgName={forecast.organization?.name ?? null}
           reviews={forecast.reviews}
+          moaStatus={forecast.moaStatus ?? null}
         />
       )}
+
+      {/* MOA correction banner */}
+      {forecast?.status === ForecastStatus.MOE_CORRECTION &&
+        forecast.moaStatus === "CORRECTION_NEEDED" && (
+          <div className="rounded border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+              Correction demandée par le MOA
+            </p>
+            {forecast.moaComment && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{forecast.moaComment}</p>
+            )}
+          </div>
+        )}
 
       {/* Entries read-only view for non-editable states */}
       {forecast && !isEditable && forecast.entries.length > 0 && (
@@ -259,7 +284,9 @@ export default async function ForecastDetailPage({
             className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             <Plus className="h-3.5 w-3.5" />
-            Créer un nouvel indice
+            {forecast?.status === ForecastStatus.MOA_APPROVED
+              ? "Créer un nouvel indice"
+              : "Soumettre un nouvel indice"}
           </button>
         </form>
       )}

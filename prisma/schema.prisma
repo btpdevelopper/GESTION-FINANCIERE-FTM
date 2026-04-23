@@ -39,12 +39,13 @@ model Organization {
   situations         SituationTravaux[]
   contractSettings   CompanyContractSettings[]
   forecasts          Forecast[]
-  penalties          Penalty[]
-  createdAt          DateTime                   @default(now())
-  updatedAt          DateTime                   @updatedAt
-  ftmDocuments       FtmDocument[]
-  projectLots        ProjectLotOrganization[]
-  targetChatMessages FtmChatMessage[]
+  penalties            Penalty[]
+  situationFtmBillings SituationFtmBilling[]
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  ftmDocuments         FtmDocument[]
+  projectLots          ProjectLotOrganization[]
+  targetChatMessages   FtmChatMessage[]
 }
 
 model UserOrganization {
@@ -70,9 +71,10 @@ model Project {
   situations       SituationTravaux[]
   contractSettings CompanyContractSettings[]
   forecasts        Forecast[]
-  penalties        Penalty[]
-  createdAt        DateTime                 @default(now())
-  updatedAt        DateTime                 @updatedAt
+  penalties            Penalty[]
+  situationFtmBillings SituationFtmBilling[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 }
 
 model ProjectLot {
@@ -271,6 +273,8 @@ model FtmRecord {
   cancelledBy          ProjectMember? @relation("FtmCanceller", fields: [cancelledById], references: [id])
   cancelledAt          DateTime?
   preCancellationPhase FtmPhase?
+
+  situationBillings SituationFtmBilling[]
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -479,6 +483,7 @@ model SituationTravaux {
   periodNetBeforeDeductionsHtCents BigInt?
   retenueGarantieAmountCents       BigInt?
   avanceTravauxRemboursementCents  BigInt?
+  ftmBilledAmountCents             BigInt?
   netAmountHtCents                 BigInt?
 
   project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -488,6 +493,7 @@ model SituationTravaux {
   moaValidatedBy ProjectMember? @relation("SituationMoaValidator", fields: [moaValidatedById], references: [id])
   reviews        SituationReview[]
   penalties      Penalty[]
+  ftmBillings    SituationFtmBilling[]
 
   @@unique([projectId, organizationId, numero])
   @@index([projectId])
@@ -512,6 +518,7 @@ model SituationReview {
   // SUBMITTED
   amountHtCents     BigInt?
   documentName      String?
+  documentUrl       String?
   correctionComment String?      @db.Text
 
   // MOE_REVIEWED
@@ -748,4 +755,40 @@ model PenaltyReview {
   member  ProjectMember @relation("PenaltyReviewMember", fields: [memberId], references: [id])
 
   @@index([penaltyId, createdAt])
+}
+
+// --- FTM billing lines inside situations ---
+
+enum SituationFtmBillingStatus {
+  PENDING
+  MOE_APPROVED
+  MOE_REFUSED
+  MOE_CORRECTION_NEEDED
+  MOA_APPROVED
+  MOA_REFUSED
+  MOA_CORRECTION_NEEDED
+}
+
+model SituationFtmBilling {
+  id                String                    @id @default(uuid()) @db.Uuid
+  situationId       String                    @db.Uuid
+  ftmRecordId       String                    @db.Uuid
+  organizationId    String                    @db.Uuid
+  projectId         String                    @db.Uuid
+  percentage        Int
+  billedAmountCents BigInt
+  status            SituationFtmBillingStatus @default(PENDING)
+  moeComment        String?                   @db.Text
+  moaComment        String?                   @db.Text
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  situation    SituationTravaux @relation(fields: [situationId], references: [id], onDelete: Cascade)
+  ftmRecord    FtmRecord        @relation(fields: [ftmRecordId], references: [id])
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  project      Project          @relation(fields: [projectId], references: [id])
+
+  @@unique([situationId, ftmRecordId])
+  @@index([situationId])
+  @@index([ftmRecordId, organizationId])
 }

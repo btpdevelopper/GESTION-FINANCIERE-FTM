@@ -64,7 +64,7 @@ export default async function PenaltiesOverviewPage({
           {totalSubmitted > 0 && (
             <div className="flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300">
               <ShieldAlert className="h-3.5 w-3.5" />
-              <strong>{totalSubmitted}</strong> pénalité{totalSubmitted > 1 ? "s" : ""} en attente d&apos;approbation MOA
+              <strong>{totalSubmitted}</strong>{" "}pénalité{totalSubmitted > 1 ? "s" : ""}{" "}en attente d&apos;approbation MOA
             </div>
           )}
           {totalContested > 0 && (

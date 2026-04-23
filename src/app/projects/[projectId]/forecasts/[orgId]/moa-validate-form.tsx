@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { moaValidateForecastAction } from "@/server/forecast/forecast-actions";
 import { Loader2 } from "lucide-react";
 
+type Decision = "APPROVED" | "CORRECTION_NEEDED" | "REFUSED";
+
 export function MoaValidateForm({
   projectId,
   forecastId,
@@ -14,9 +16,11 @@ export function MoaValidateForm({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [decision, setDecision] = useState<"APPROVED" | "REFUSED">("APPROVED");
+  const [decision, setDecision] = useState<Decision>("APPROVED");
   const [comment, setComment] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const commentRequired = decision === "REFUSED" || decision === "CORRECTION_NEEDED";
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -42,7 +46,7 @@ export function MoaValidateForm({
       )}
 
       <div className="flex gap-3">
-        {(["APPROVED", "REFUSED"] as const).map((d) => (
+        {(["APPROVED", "CORRECTION_NEEDED", "REFUSED"] as const).map((d) => (
           <label key={d} className="flex items-center gap-1.5 cursor-pointer">
             <input
               type="radio"
@@ -52,7 +56,7 @@ export function MoaValidateForm({
               onChange={() => setDecision(d)}
             />
             <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-              {d === "APPROVED" ? "Valider" : "Refuser"}
+              {d === "APPROVED" ? "Valider" : d === "CORRECTION_NEEDED" ? "Correction" : "Refuser"}
             </span>
           </label>
         ))}
@@ -60,14 +64,18 @@ export function MoaValidateForm({
 
       <div>
         <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-          Commentaire{decision === "REFUSED" && <span className="text-red-500"> *</span>}
+          Commentaire{commentRequired && <span className="text-red-500"> *</span>}
         </label>
         <textarea
-          required={decision === "REFUSED"}
+          required={commentRequired}
           rows={3}
           value={comment}
           onChange={(e) => setComment(e.target.value)}
-          placeholder={decision === "REFUSED" ? "Motif du refus obligatoire…" : "Commentaire optionnel…"}
+          placeholder={
+            decision === "REFUSED"           ? "Motif du refus obligatoire…" :
+            decision === "CORRECTION_NEEDED" ? "Instructions de correction obligatoires…" :
+            "Commentaire optionnel…"
+          }
           className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
         />
       </div>

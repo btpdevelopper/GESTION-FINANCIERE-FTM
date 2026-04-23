@@ -27,10 +27,30 @@ export async function getProjectForecasts(projectId: string) {
 }
 
 /** Full forecast detail for a given org: the "active" indice (open or latest approved). */
-export async function getForecast(projectId: string, orgId: string) {
+export async function getForecast(projectId: string, orgId: string, indice?: number) {
   const user = await getAuthUser();
   if (!user?.id) throw new Error("Non authentifié.");
   await requireProjectMember(user.id, projectId);
+
+  const include = {
+    organization: true,
+    entries: { orderBy: { periodLabel: "asc" } },
+    reviews: {
+      orderBy: { createdAt: "asc" },
+      include: { member: { include: { user: true } } },
+    },
+    submittedBy: { include: { user: true } },
+    moeReviewedBy: { include: { user: true } },
+    moaValidatedBy: { include: { user: true } },
+  } as const;
+
+  // If a specific indice is requested, load it directly
+  if (indice != null) {
+    return prisma.forecast.findFirst({
+      where: { projectId, organizationId: orgId, indice },
+      include,
+    });
+  }
 
   // Prefer open (non-terminal) indice; fallback to latest
   const open = await prisma.forecast.findFirst({
@@ -40,17 +60,7 @@ export async function getForecast(projectId: string, orgId: string) {
       status: { notIn: [ForecastStatus.MOA_APPROVED, ForecastStatus.MOE_REFUSED, ForecastStatus.MOA_REFUSED] },
     },
     orderBy: { indice: "desc" },
-    include: {
-      organization: true,
-      entries: { orderBy: { periodLabel: "asc" } },
-      reviews: {
-        orderBy: { createdAt: "asc" },
-        include: { member: { include: { user: true } } },
-      },
-      submittedBy: { include: { user: true } },
-      moeReviewedBy: { include: { user: true } },
-      moaValidatedBy: { include: { user: true } },
-    },
+    include,
   });
   if (open) return open;
 

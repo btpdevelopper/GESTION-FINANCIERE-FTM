@@ -14,6 +14,7 @@ export function computePenaltyFrozenAmount(
   inputValue: bigint,
   marcheTotalCents: bigint,
   approvedFtmTotalCents: bigint,
+  activePenaltiesTotalCents: bigint = BigInt(0),
 ): bigint {
   const zero = BigInt(0);
   if (inputValue <= zero) return zero;
@@ -24,8 +25,8 @@ export function computePenaltyFrozenAmount(
 
   const base =
     amountType === "PCT_ACTUAL_MARCHE"
-      ? marcheTotalCents + approvedFtmTotalCents
-      : marcheTotalCents;
+      ? marcheTotalCents + approvedFtmTotalCents - activePenaltiesTotalCents
+      : marcheTotalCents; // PCT_BASE_MARCHE is unaffected by penalties
 
   if (base <= zero) return zero;
 

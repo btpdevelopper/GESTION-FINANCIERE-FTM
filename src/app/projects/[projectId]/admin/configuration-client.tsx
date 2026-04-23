@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Capability } from "@prisma/client";
+import { Capability, ProjectRole } from "@prisma/client";
 import { Settings, Layers, Users, FileSignature } from "lucide-react";
 import { TabGeneral } from "./tab-general";
 import { TabFinance } from "./tab-finance";
@@ -26,6 +26,7 @@ export function ConfigurationClient({
   organizationNames,
   currentMemberId,
   enterprises,
+  defaultGroupIdsByRole,
 }: {
   project: any;
   groups: any[];
@@ -34,6 +35,7 @@ export function ConfigurationClient({
   organizationNames: string[];
   currentMemberId: string | null;
   enterprises: any[];
+  defaultGroupIdsByRole: Record<ProjectRole, string | null>;
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("SETTINGS");
 
@@ -64,6 +66,7 @@ export function ConfigurationClient({
             allCapabilities={allCapabilities}
             organizationNames={organizationNames}
             currentMemberId={currentMemberId}
+            defaultGroupIdsByRole={defaultGroupIdsByRole}
           />
         )}
         {activeTab === "CONTRATS" && (

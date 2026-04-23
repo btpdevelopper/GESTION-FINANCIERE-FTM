@@ -22,18 +22,22 @@ export function InviteMemberModal({
   onClose,
   organizationNames,
   groups,
+  defaultGroupIdsByRole,
 }: {
   projectId: string;
   open: boolean;
   onClose: () => void;
   organizationNames: string[];
   groups: { id: string; name: string }[];
+  defaultGroupIdsByRole: Record<ProjectRole, string | null>;
 }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [organizationName, setOrganizationName] = useState("");
   const [role, setRole] = useState<ProjectRole>("ENTREPRISE");
-  const [permissionGroupId, setPermissionGroupId] = useState<string>("");
+  const [permissionGroupId, setPermissionGroupId] = useState<string>(
+    defaultGroupIdsByRole["ENTREPRISE"] ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -41,12 +45,17 @@ export function InviteMemberModal({
 
   if (!open) return null;
 
+  const handleRoleChange = (newRole: ProjectRole) => {
+    setRole(newRole);
+    setPermissionGroupId(defaultGroupIdsByRole[newRole] ?? "");
+  };
+
   const reset = () => {
     setEmail("");
     setName("");
     setOrganizationName("");
     setRole("ENTREPRISE");
-    setPermissionGroupId("");
+    setPermissionGroupId(defaultGroupIdsByRole["ENTREPRISE"] ?? "");
     setError(null);
     setSuccessMsg(null);
   };
@@ -150,7 +159,7 @@ export function InviteMemberModal({
               <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
                 Rôle <span className="text-red-500">*</span>
               </label>
-              <Select value={role} onChange={(e) => setRole(e.target.value as ProjectRole)}>
+              <Select value={role} onChange={(e) => handleRoleChange(e.target.value as ProjectRole)}>
                 {(Object.keys(ROLE_LABELS) as ProjectRole[]).map((r) => (
                   <option key={r} value={r}>
                     {ROLE_LABELS[r]}

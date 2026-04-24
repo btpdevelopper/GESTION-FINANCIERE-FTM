@@ -132,6 +132,90 @@ export type FtmEvents = {
   };
 };
 
+export type DgdEvents = {
+  /** ENTREPRISE submitted DGD draft → notify MOE members */
+  "dgd/submitted": {
+    data: {
+      projectId: string;
+      dgdId: string;
+      organizationId: string;
+      organizationName: string;
+      soldeDgdHtCents: string;
+    };
+  };
+
+  /** MOE reviewed DGD (ACCEPT/MODIFY/REJECT) → notify MOA or ENTREPRISE */
+  "dgd/moe-reviewed": {
+    data: {
+      projectId: string;
+      dgdId: string;
+      organizationId: string;
+      decision: "ACCEPT" | "MODIFY" | "REJECT";
+      comment: string;
+    };
+  };
+
+  /** MOA approved DGD → notify ENTREPRISE, dispute window open */
+  "dgd/approved": {
+    data: {
+      projectId: string;
+      dgdId: string;
+      organizationId: string;
+      disputeDeadline: string; // ISO 8601
+    };
+  };
+
+  /** MOA rejected DGD → notify MOE for re-analysis */
+  "dgd/moa-rejected": {
+    data: {
+      projectId: string;
+      dgdId: string;
+      organizationId: string;
+      comment: string;
+    };
+  };
+
+  /** ENTREPRISE contested DGD → notify MOE + MOA */
+  "dgd/disputed": {
+    data: {
+      projectId: string;
+      dgdId: string;
+      organizationId: string;
+      justification: string;
+    };
+  };
+
+  /** MOE/MOA resolved dispute amicably → notify all parties */
+  "dgd/resolved-amicably": {
+    data: {
+      projectId: string;
+      dgdId: string;
+      organizationId: string;
+      adjustedSoldeHtCents: string;
+    };
+  };
+
+  /** MOA declared litigation → notify ENTREPRISE + MOE */
+  "dgd/in-litigation": {
+    data: {
+      projectId: string;
+      dgdId: string;
+      organizationId: string;
+      comment: string;
+    };
+  };
+
+  /** MOA recorded court ruling → notify all parties */
+  "dgd/resolved-by-court": {
+    data: {
+      projectId: string;
+      dgdId: string;
+      organizationId: string;
+      courtSoldeHtCents: string;
+    };
+  };
+};
+
 export type PenaltyEvents = {
   /** MOE submitted a penalty for MOA approval */
   "penalty/submitted": {

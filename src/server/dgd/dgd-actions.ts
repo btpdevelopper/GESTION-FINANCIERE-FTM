@@ -7,8 +7,10 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
 import { can } from "@/lib/permissions/resolve";
-import { calculateDgdTotals, checkDgdEligibility, DGD_TERMINAL_STATUSES } from "@/lib/dgd/calculations";
+import { calculateDgdTotals, checkDgdEligibility } from "@/lib/dgd/calculations";
 import { inngest } from "@/inngest/client";
+import { uploadFtmDocument } from "@/lib/storage";
+import { validateFileMagicNumber } from "@/lib/validations/magic";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -149,6 +151,7 @@ export async function submitDgdAction(raw: unknown) {
     data: {
       projectId: data.projectId,
       dgdId: data.dgdId,
+      organizationId: member.organizationId,
       organizationName: org?.name ?? "",
       soldeDgdHtCents: totals.soldeDgdHtCents.toString(),
     },
@@ -381,6 +384,8 @@ const ContestDgdSchema = z.object({
   dgdId: z.string().uuid(),
   projectId: z.string().uuid(),
   justification: z.string().min(10, "La justification doit comporter au moins 10 caractères."),
+  disputeDocumentUrl: z.string().optional().nullable(),
+  disputeDocumentName: z.string().optional().nullable(),
 });
 
 /**
@@ -423,6 +428,10 @@ export async function contestDgdAction(raw: unknown) {
         status: DgdStatus.DISPUTED,
         disputedAt: new Date(),
         disputeJustification: data.justification,
+        ...(data.disputeDocumentUrl ? {
+          disputeDocumentUrl: data.disputeDocumentUrl,
+          disputeDocumentName: data.disputeDocumentName ?? null,
+        } : {}),
       },
     });
 
@@ -458,11 +467,14 @@ const ResolveAmicablySchema = z.object({
   projectId: z.string().uuid(),
   adjustedSoldeHtCents: z.number().int(),
   comment: z.string().min(1, "Un commentaire est obligatoire."),
+  amicableDocumentUrl: z.string().optional().nullable(),
+  amicableDocumentName: z.string().optional().nullable(),
 });
 
 /**
- * MOE/MOA resolves the dispute amicably. They negotiate a new solde
- * and upload the signed settlement agreement (Protocole d'accord transactionnel).
+ * MOA resolves the dispute amicably — negotiates a new solde and uploads the
+ * signed settlement agreement (Protocole d'accord transactionnel).
+ * Restricted to MOA: only the project owner can formally close a dispute.
  */
 export async function resolveAmicablyAction(raw: unknown) {
   const user = await getAuthUser();
@@ -473,9 +485,8 @@ export async function resolveAmicablyAction(raw: unknown) {
   const data = parsed.data;
 
   const member = await requireProjectMember(user.id, data.projectId);
-  const isMoe = await can(member.id, Capability.REVIEW_DGD_MOE);
-  const isMoa = await can(member.id, Capability.VALIDATE_DGD_MOA);
-  if (!isMoe && !isMoa) throw new Error("Permission refusée.");
+  const allowed = await can(member.id, Capability.VALIDATE_DGD_MOA);
+  if (!allowed) throw new Error("Permission refusée. Seul le MOA peut formaliser une résolution amiable.");
 
   const dgd = await prisma.dgdRecord.findFirst({
     where: { id: data.dgdId, projectId: data.projectId },
@@ -488,6 +499,15 @@ export async function resolveAmicablyAction(raw: unknown) {
   const adjustedSolde = BigInt(data.adjustedSoldeHtCents);
 
   await prisma.$transaction(async (tx) => {
+    // Re-check status inside the transaction to guard against concurrent submissions.
+    const current = await tx.dgdRecord.findUnique({
+      where: { id: data.dgdId },
+      select: { status: true },
+    });
+    if (!current || current.status !== DgdStatus.DISPUTED) {
+      throw new Error("Ce DGD a déjà été résolu. Veuillez rafraîchir la page.");
+    }
+
     await tx.dgdRecord.update({
       where: { id: data.dgdId },
       data: {
@@ -495,6 +515,10 @@ export async function resolveAmicablyAction(raw: unknown) {
         amicableComment: data.comment,
         amicableAdjustedSoldeHtCents: adjustedSolde,
         amicableResolvedAt: new Date(),
+        ...(data.amicableDocumentUrl ? {
+          amicableDocumentUrl: data.amicableDocumentUrl,
+          amicableDocumentName: data.amicableDocumentName ?? null,
+        } : {}),
       },
     });
 
@@ -601,6 +625,8 @@ const ResolveByCourtSchema = z.object({
   projectId: z.string().uuid(),
   courtSoldeHtCents: z.number().int(),
   comment: z.string().min(1, "Un commentaire est obligatoire."),
+  courtDocumentUrl: z.string().optional().nullable(),
+  courtDocumentName: z.string().optional().nullable(),
 });
 
 /**
@@ -636,6 +662,10 @@ export async function resolveByCourtAction(raw: unknown) {
         status: DgdStatus.RESOLVED_BY_COURT,
         courtSoldeHtCents: courtSolde,
         courtResolvedAt: new Date(),
+        ...(data.courtDocumentUrl ? {
+          courtDocumentUrl: data.courtDocumentUrl,
+          courtDocumentName: data.courtDocumentName ?? null,
+        } : {}),
       },
     });
 
@@ -666,4 +696,66 @@ export async function resolveByCourtAction(raw: unknown) {
     comment: data.comment,
   });
   revalidateDgd(data.projectId, dgd.organizationId);
+}
+
+// ─── Document Upload ──────────────────────────────────────────────────────────
+
+const ALLOWED_MIME_TYPES = ["application/pdf", "image/png", "image/jpeg"];
+const MAX_SIZE_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Upload a DGD document (mémoire en réclamation, protocole d'accord, jugement).
+ * Any project member with a DGD capability may upload; the mutation action
+ * enforces the business-level permission.
+ */
+export async function uploadDgdDocumentAction(
+  formData: FormData
+): Promise<{ path: string; name: string }> {
+  const user = await getAuthUser();
+  if (!user?.id) throw new Error("Non authentifié.");
+
+  const projectId = formData.get("projectId") as string;
+  const dgdId = formData.get("dgdId") as string;
+  if (!projectId || !dgdId) throw new Error("Paramètres manquants.");
+
+  const member = await requireProjectMember(user.id, projectId);
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Aucun fichier fourni.");
+  if (file.size > MAX_SIZE_BYTES) throw new Error("Fichier trop volumineux (20 Mo max).");
+  if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+    throw new Error("Format non autorisé. Formats acceptés : PDF, PNG, JPEG.");
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const header = buffer.subarray(0, 12);
+  if (!validateFileMagicNumber(header, file.type, file.name)) {
+    throw new Error("Le fichier ne correspond pas à son type déclaré.");
+  }
+
+  const storagePrefix = `dgd/${projectId}/${member.organizationId}`;
+  const { path } = await uploadFtmDocument(storagePrefix, buffer, file.name, file.type);
+  return { path, name: file.name };
+}
+
+// ─── Get Signed Document URL ─────────────────────────────────────────────────
+
+import { getFtmDocumentUrl } from "@/lib/storage";
+
+/**
+ * Generate a short-lived signed URL for a DGD document.
+ * Path must belong to this project to prevent cross-project document access.
+ */
+export async function getDgdDocumentSignedUrlAction(
+  projectId: string,
+  path: string
+): Promise<string> {
+  const user = await getAuthUser();
+  if (!user?.id) throw new Error("Non authentifié.");
+  await requireProjectMember(user.id, projectId);
+  if (!path.startsWith(`dgd/${projectId}/`)) {
+    throw new Error("Chemin de document invalide.");
+  }
+  return getFtmDocumentUrl(path);
 }

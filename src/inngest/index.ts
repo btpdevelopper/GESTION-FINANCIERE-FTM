@@ -15,3 +15,14 @@ export {
 } from "./functions/notifications";
 
 export { remindQuotes } from "./functions/remind-quotes";
+
+export {
+  onDgdSubmitted,
+  onDgdMoeReviewed,
+  onDgdApproved,
+  onDgdMoaRejected,
+  onDgdDisputed,
+  onDgdResolvedAmicably,
+  onDgdInLitigation,
+  onDgdResolvedByCourt,
+} from "./functions/dgd-notifications";

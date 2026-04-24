@@ -160,6 +160,167 @@ export async function getDgdDashboardData(projectId: string): Promise<DgdDashboa
   });
 }
 
+// ─── Financial recap types ───────────────────────────────────────────────────
+
+export type RecapFtmBillingLine = {
+  id: string;
+  billedAmountCents: number;
+  percentage: number;
+  ftmRecordId: string;
+  ftmTitle: string;
+  ftmNumber: number;
+};
+
+export type RecapSituation = {
+  id: string;
+  numero: number;
+  periodLabel: string;
+  periodNetBeforeDeductionsHtCents: number;
+  retenueGarantieAmountCents: number;
+  avanceTravauxRemboursementCents: number;
+  penaltyAmountCents: number;
+  ftmBilledAmountCents: number;
+  netAmountHtCents: number;
+  acceptedCumulativeHtCents: number;
+  ftmBillings: RecapFtmBillingLine[];
+  penalties: { id: string; label: string; frozenAmountCents: number }[];
+};
+
+export type RecapFtm = {
+  ftmId: string;
+  title: string;
+  number: number;
+  indice: number;
+  quoteNumber: string | null;
+  totalAmountCents: number;
+  billedAmountCents: number;
+};
+
+export type DgdFinancialRecapData = {
+  situations: RecapSituation[];
+  ftms: RecapFtm[];
+  dgdPenalties: { id: string; label: string; frozenAmountCents: number }[];
+};
+
+export async function getDgdFinancialRecapData(
+  projectId: string,
+  orgId: string,
+): Promise<DgdFinancialRecapData> {
+  const user = await getAuthUser();
+  if (!user?.id) throw new Error("Non authentifié.");
+  await requireProjectMember(user.id, projectId);
+
+  const [rawSituations, ftmSubmissions, dgdPenalties] = await Promise.all([
+    prisma.situationTravaux.findMany({
+      where: { projectId, organizationId: orgId, status: "MOA_APPROVED" },
+      orderBy: { numero: "asc" },
+      select: {
+        id: true,
+        numero: true,
+        periodLabel: true,
+        periodNetBeforeDeductionsHtCents: true,
+        retenueGarantieAmountCents: true,
+        avanceTravauxRemboursementCents: true,
+        penaltyAmountCents: true,
+        ftmBilledAmountCents: true,
+        netAmountHtCents: true,
+        acceptedCumulativeHtCents: true,
+        ftmBillings: {
+          where: { status: "MOA_APPROVED" },
+          select: {
+            id: true,
+            billedAmountCents: true,
+            percentage: true,
+            ftmRecord: { select: { id: true, title: true, number: true } },
+          },
+        },
+        penalties: {
+          where: { status: { in: ["MOA_APPROVED", "MAINTAINED"] } },
+          select: { id: true, label: true, frozenAmountCents: true },
+        },
+      },
+    }),
+    prisma.ftmQuoteSubmission.findMany({
+      where: { organizationId: orgId, ftm: { projectId, phase: "ACCEPTED" } },
+      select: {
+        ftmId: true,
+        indice: true,
+        quoteNumber: true,
+        amountHtCents: true,
+        ftm: { select: { id: true, title: true, number: true } },
+      },
+    }),
+    prisma.penalty.findMany({
+      where: {
+        projectId,
+        organizationId: orgId,
+        applicationTarget: "DGD",
+        status: { in: ["MOA_APPROVED", "MAINTAINED"] },
+      },
+      select: { id: true, label: true, frozenAmountCents: true },
+    }),
+  ]);
+
+  // Group submissions by ftmId — sum amounts across lots, keep highest indice
+  type FtmEntry = { ftmId: string; title: string; number: number; indice: number; quoteNumber: string | null; totalAmountCents: bigint; billedAmountCents: bigint };
+  const ftmMap = new Map<string, FtmEntry>();
+  for (const sub of ftmSubmissions) {
+    const existing = ftmMap.get(sub.ftmId);
+    if (!existing) {
+      ftmMap.set(sub.ftmId, { ftmId: sub.ftmId, title: sub.ftm.title, number: sub.ftm.number, indice: sub.indice, quoteNumber: sub.quoteNumber, totalAmountCents: sub.amountHtCents, billedAmountCents: BigInt(0) });
+    } else {
+      existing.totalAmountCents += sub.amountHtCents;
+      if (sub.indice > existing.indice) { existing.indice = sub.indice; existing.quoteNumber = sub.quoteNumber; }
+    }
+  }
+
+  // Accumulate billed amounts per FTM from situation billings
+  for (const sit of rawSituations) {
+    for (const b of sit.ftmBillings) {
+      const entry = ftmMap.get(b.ftmRecord.id);
+      if (entry) entry.billedAmountCents += b.billedAmountCents;
+    }
+  }
+
+  const situations: RecapSituation[] = rawSituations.map((s) => ({
+    id: s.id,
+    numero: s.numero,
+    periodLabel: s.periodLabel,
+    periodNetBeforeDeductionsHtCents: Number(s.periodNetBeforeDeductionsHtCents ?? 0),
+    retenueGarantieAmountCents: Number(s.retenueGarantieAmountCents ?? 0),
+    avanceTravauxRemboursementCents: Number(s.avanceTravauxRemboursementCents ?? 0),
+    penaltyAmountCents: Number(s.penaltyAmountCents ?? 0),
+    ftmBilledAmountCents: Number(s.ftmBilledAmountCents ?? 0),
+    netAmountHtCents: Number(s.netAmountHtCents ?? 0),
+    acceptedCumulativeHtCents: Number(s.acceptedCumulativeHtCents ?? 0),
+    ftmBillings: s.ftmBillings.map((b) => ({
+      id: b.id,
+      billedAmountCents: Number(b.billedAmountCents),
+      percentage: b.percentage,
+      ftmRecordId: b.ftmRecord.id,
+      ftmTitle: b.ftmRecord.title,
+      ftmNumber: b.ftmRecord.number,
+    })),
+    penalties: s.penalties.map((p) => ({ id: p.id, label: p.label, frozenAmountCents: Number(p.frozenAmountCents ?? 0) })),
+  }));
+
+  const ftms: RecapFtm[] = [...ftmMap.values()].map((f) => ({
+    ftmId: f.ftmId,
+    title: f.title,
+    number: f.number,
+    indice: f.indice,
+    quoteNumber: f.quoteNumber,
+    totalAmountCents: Number(f.totalAmountCents),
+    billedAmountCents: Number(f.billedAmountCents),
+  }));
+
+  return {
+    situations,
+    ftms,
+    dgdPenalties: dgdPenalties.map((p) => ({ id: p.id, label: p.label, frozenAmountCents: Number(p.frozenAmountCents ?? 0) })),
+  };
+}
+
 /**
  * Check if the current user's company can create a DGD.
  * Returns eligibility info for the UI banner.

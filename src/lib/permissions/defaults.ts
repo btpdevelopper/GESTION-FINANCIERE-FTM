@@ -17,6 +17,7 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<ProjectRole, Capability[]> = {
     Capability.VALIDATE_PENALTY_MOA,
     Capability.ADMIN_PROJECT_PERMISSIONS,
     Capability.CONFIGURE_CONTRACT_SETTINGS,
+    Capability.VALIDATE_DGD_MOA,
   ],
   MOE: [
     Capability.VIEW_GLOBAL_FINANCE,
@@ -30,6 +31,7 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<ProjectRole, Capability[]> = {
     Capability.REVIEW_SITUATION_MOE,
     Capability.REVIEW_FORECAST_MOE,
     Capability.CREATE_PENALTY,
+    Capability.REVIEW_DGD_MOE,
   ],
   ENTREPRISE: [
     Capability.VIEW_OWN_SCOPE,
@@ -38,5 +40,7 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<ProjectRole, Capability[]> = {
     Capability.SUBMIT_SITUATION,
     Capability.SUBMIT_FORECAST,
     Capability.CONTEST_PENALTY,
+    Capability.SUBMIT_DGD,
+    Capability.CONTEST_DGD,
   ],
 };

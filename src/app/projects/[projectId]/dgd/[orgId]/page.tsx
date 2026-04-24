@@ -2,10 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
-import { getDgdForOrg } from "@/server/dgd/dgd-queries";
+import { getDgdForOrg, getDgdFinancialRecapData } from "@/server/dgd/dgd-queries";
 import { calculateDgdTotals } from "@/lib/dgd/calculations";
 import { prisma } from "@/lib/prisma";
 import { DgdDetailShell } from "../_components/dgd-detail-shell";
+import { DgdFinancialRecap } from "../_components/dgd-financial-recap";
 
 export default async function DgdOrgDetailPage({
   params,
@@ -18,10 +19,11 @@ export default async function DgdOrgDetailPage({
 
   const pm = await requireProjectMember(user.id, projectId);
 
-  const [org, dgd, liveTotals] = await Promise.all([
+  const [org, dgd, liveTotals, recapData] = await Promise.all([
     prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
     getDgdForOrg(projectId, orgId),
     calculateDgdTotals(projectId, orgId),
+    getDgdFinancialRecapData(projectId, orgId),
   ]);
   if (!org) notFound();
 
@@ -70,6 +72,8 @@ export default async function DgdOrgDetailPage({
         canCreate={false}
         role={pm.role}
       />
+
+      <DgdFinancialRecap data={recapData} />
     </div>
   );
 }

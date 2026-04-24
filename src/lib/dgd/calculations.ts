@@ -241,10 +241,11 @@ export async function checkDgdEligibility(
 }
 
 /**
- * Terminal statuses where the DGD is locked and no further standard edits are possible.
+ * Statuses where the DGD is locked and no further standard workflow edits are
+ * possible. APPROVED is intentionally excluded — the ENTREPRISE can still contest
+ * within the 30-day dispute window.
  */
 export const DGD_TERMINAL_STATUSES = [
-  "APPROVED",
   "RESOLVED_AMICABLY",
   "IN_LITIGATION",
   "RESOLVED_BY_COURT",

@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { getDgdForOrg } from "@/server/dgd/dgd-queries";
+import { getDgdForOrg, getDgdFinancialRecapData } from "@/server/dgd/dgd-queries";
 import { calculateDgdTotals } from "@/lib/dgd/calculations";
 import { DgdDetailShell } from "./dgd-detail-shell";
+import { DgdFinancialRecap } from "./dgd-financial-recap";
 import { AlertCircle, Info } from "lucide-react";
 
 type Props = {
@@ -23,8 +24,11 @@ export async function DgdEntrepriseView({
   organizationId,
   eligibility,
 }: Props) {
-  const existingDgd = await getDgdForOrg(projectId, organizationId);
-  const liveTotals = await calculateDgdTotals(projectId, organizationId);
+  const [existingDgd, liveTotals, recapData] = await Promise.all([
+    getDgdForOrg(projectId, organizationId),
+    calculateDgdTotals(projectId, organizationId),
+    getDgdFinancialRecapData(projectId, organizationId),
+  ]);
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -102,6 +106,8 @@ export async function DgdEntrepriseView({
         canCreate={eligibility.eligible && !existingDgd}
         role="ENTREPRISE"
       />
+
+      <DgdFinancialRecap data={recapData} />
     </div>
   );
 }

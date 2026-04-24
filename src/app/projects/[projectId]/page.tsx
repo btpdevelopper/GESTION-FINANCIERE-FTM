@@ -26,7 +26,7 @@ export default async function ProjectHomePage({
     prisma.project.findUnique({
       where: { id: projectId },
       // Only fetch the base contract for MOE/MOA — never expose full project financials to ENTREPRISE
-      include: isEntreprise ? {} : { baseContract: true },
+      include: { baseContract: true },
     }),
     getProjectPendingCounts(projectId, pm),
     isEntreprise && pm.organizationId
@@ -98,7 +98,7 @@ export default async function ProjectHomePage({
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
           {project.name}
         </h1>
-        {"baseContract" in project && project.baseContract && (
+        {!isEntreprise && project.baseContract && (
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Marché de base :{" "}
             <strong className="text-slate-700 dark:text-slate-300">

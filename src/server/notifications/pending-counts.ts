@@ -1,11 +1,12 @@
 import { prisma } from "@/lib/prisma";
-import { ForecastStatus, FtmPhase, MoaEtudesDecision, PenaltyStatus, ProjectRole, SituationStatus } from "@prisma/client";
+import { DgdStatus, ForecastStatus, FtmPhase, MoaEtudesDecision, PenaltyStatus, ProjectRole, SituationStatus } from "@prisma/client";
 
 export interface PendingCounts {
   ftm: number;
   situations: number;
   forecasts: number;
   penalties: number;
+  dgd: number;
   total: number;
 }
 
@@ -14,7 +15,7 @@ export async function getProjectPendingCounts(
   pm: { role: ProjectRole; organizationId: string },
 ): Promise<PendingCounts> {
   if (pm.role === ProjectRole.MOA) {
-    const [ftmCount, demandCount, situationCount, forecastCount, penaltyCount] = await Promise.all([
+    const [ftmCount, demandCount, situationCount, forecastCount, penaltyCount, dgdCount] = await Promise.all([
       prisma.ftmRecord.count({
         where: {
           projectId,
@@ -34,18 +35,21 @@ export async function getProjectPendingCounts(
           status: { in: [PenaltyStatus.SUBMITTED, PenaltyStatus.CONTESTED] },
         },
       }),
+      // MOA sees: DGDs awaiting validation
+      prisma.dgdRecord.count({ where: { projectId, status: DgdStatus.PENDING_MOA } }),
     ]);
     return {
       ftm: ftmCount + demandCount,
       situations: situationCount,
       forecasts: forecastCount,
       penalties: penaltyCount,
-      total: ftmCount + demandCount + situationCount + forecastCount + penaltyCount,
+      dgd: dgdCount,
+      total: ftmCount + demandCount + situationCount + forecastCount + penaltyCount + dgdCount,
     };
   }
 
   if (pm.role === ProjectRole.MOE) {
-    const [ftmCount, demandCount, situationCount, forecastCount, penaltyCount] = await Promise.all([
+    const [ftmCount, demandCount, situationCount, forecastCount, penaltyCount, dgdCount] = await Promise.all([
       prisma.ftmRecord.count({ where: { projectId, phase: FtmPhase.ANALYSIS } }),
       prisma.ftmDemand.count({ where: { projectId, status: "PENDING_MOE" } }),
       prisma.situationTravaux.count({ where: { projectId, status: SituationStatus.SUBMITTED } }),
@@ -54,18 +58,21 @@ export async function getProjectPendingCounts(
       prisma.penalty.count({
         where: { projectId, status: PenaltyStatus.CONTESTED },
       }),
+      // MOE sees: DGDs awaiting analysis
+      prisma.dgdRecord.count({ where: { projectId, status: DgdStatus.PENDING_MOE } }),
     ]);
     return {
       ftm: ftmCount + demandCount,
       situations: situationCount,
       forecasts: forecastCount,
       penalties: penaltyCount,
-      total: ftmCount + demandCount + situationCount + forecastCount + penaltyCount,
+      dgd: dgdCount,
+      total: ftmCount + demandCount + situationCount + forecastCount + penaltyCount + dgdCount,
     };
   }
 
   if (pm.role === ProjectRole.ENTREPRISE) {
-    const [ftmCount, situationCount, forecastCount, penaltyCount] = await Promise.all([
+    const [ftmCount, situationCount, forecastCount, penaltyCount, dgdCount] = await Promise.all([
       prisma.ftmRecord.count({
         where: {
           projectId,
@@ -87,15 +94,25 @@ export async function getProjectPendingCounts(
           status: PenaltyStatus.MOA_APPROVED,
         },
       }),
+      // ENTREPRISE sees: DGD approved (they can contest within deadline)
+      prisma.dgdRecord.count({
+        where: {
+          projectId,
+          organizationId: pm.organizationId,
+          status: DgdStatus.APPROVED,
+          disputeDeadline: { gte: new Date() },
+        },
+      }),
     ]);
     return {
       ftm: ftmCount,
       situations: situationCount,
       forecasts: forecastCount,
       penalties: penaltyCount,
-      total: ftmCount + situationCount + forecastCount + penaltyCount,
+      dgd: dgdCount,
+      total: ftmCount + situationCount + forecastCount + penaltyCount + dgdCount,
     };
   }
 
-  return { ftm: 0, situations: 0, forecasts: 0, penalties: 0, total: 0 };
+  return { ftm: 0, situations: 0, forecasts: 0, penalties: 0, dgd: 0, total: 0 };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, Fragment, useRef } from "react";
 import {
   BarChart,
   Bar,
@@ -11,7 +11,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Info } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badge";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -154,17 +154,27 @@ export function ForecastsDashboard({ data }: Props) {
     <div className="space-y-5">
       {/* ── KPI cards ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard label="Marché actuel total" value={fmtEur(totals.marcheActuel)} />
-        <KpiCard label="Total prévu (approuvé)" value={totals.prevuTotal > 0 ? fmtEur(totals.prevuTotal) : "—"} />
+        <KpiCard
+          label="Marché actuel total"
+          value={fmtEur(totals.marcheActuel)}
+          tooltip="Somme des marchés actuels de toutes les entreprises. Le marché actuel = Marché de base + FTM validés (avenants). Il représente la valeur contractuelle totale du projet à date."
+        />
+        <KpiCard
+          label="Total prévu (approuvé)"
+          value={totals.prevuTotal > 0 ? fmtEur(totals.prevuTotal) : "—"}
+          tooltip="Somme des montants HT prévisionnels validés MOA sur toutes les entreprises. Inclut uniquement les entrées des prévisionnels au statut MOA_APPROVED."
+        />
         <KpiCard
           label="Couverture prévisionnelle"
           value={totals.couverture > 0 ? `${totals.couverture.toFixed(1)} %` : "—"}
           accent={totals.couverture >= 90 ? "teal" : totals.couverture >= 50 ? undefined : "amber"}
+          tooltip="Total prévu (MOA_APPROVED) ÷ Marché actuel total × 100. Indique dans quelle mesure le plan de facturation couvre la valeur totale du marché. En dessous de 90 % = couverture insuffisante."
         />
         <KpiCard
           label="Prévisionnels approuvés"
           value={`${totals.approvedCount} / ${totals.total}`}
           accent={totals.approvedCount === totals.total ? "teal" : undefined}
+          tooltip="Nombre d'entreprises dont le dernier prévisionnel est au statut MOA_APPROVED, sur le total d'entreprises actives sur le projet."
         />
       </div>
 
@@ -278,11 +288,11 @@ export function ForecastsDashboard({ data }: Props) {
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/40">
                 <Th left>Entreprise</Th>
-                <Th>Marché actuel</Th>
-                <Th>Total prévu</Th>
-                <Th className="hidden lg:table-cell">Couverture</Th>
-                <Th className="hidden md:table-cell">Périodes</Th>
-                <Th>Indice</Th>
+                <Th bold tooltip="Marché de base + FTM validés. Représente la valeur contractuelle totale en vigueur pour cette entreprise.">Marché actuel</Th>
+                <Th tooltip="Somme des montants HT des entrées du dernier prévisionnel validé MOA pour cette entreprise. Représente le plan de facturation officiel.">Total prévu</Th>
+                <Th className="hidden lg:table-cell" tooltip="Total prévu ÷ Marché actuel × 100. Indique dans quelle mesure le plan de facturation couvre la valeur totale du marché de l'entreprise.">Couverture</Th>
+                <Th className="hidden md:table-cell" tooltip="Nombre de mois distincts planifiés dans le dernier prévisionnel validé MOA de cette entreprise.">Périodes</Th>
+                <Th tooltip="Numéro de révision du dernier prévisionnel soumis par cette entreprise (incrémenté à chaque nouvelle version).">Indice</Th>
                 <Th left>Statut</Th>
                 <Th>{/* toggle */}</Th>
               </tr>
@@ -381,14 +391,61 @@ export function ForecastsDashboard({ data }: Props) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
+/**
+ * Fixed-position tooltip — escapes any overflow:hidden / overflow-x:auto
+ * ancestor (e.g. the table scroll wrapper) by using getBoundingClientRect.
+ */
+function InfoTooltip({ text }: { text: string }) {
+  const [visible, setVisible] = useState(false);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const ref = useRef<HTMLSpanElement>(null);
+
+  function handleMouseEnter() {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setCoords({ top: r.top - 6, left: r.left + r.width / 2 });
+    }
+    setVisible(true);
+  }
+
+  return (
+    <>
+      <span
+        ref={ref}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={() => setVisible(false)}
+        className="inline-flex items-center"
+      >
+        <Info className="h-3 w-3 cursor-help text-slate-300 transition-colors hover:text-slate-500 dark:text-slate-600 dark:hover:text-slate-400" />
+      </span>
+      {visible && (
+        <span
+          style={{
+            position: "fixed",
+            top: coords.top,
+            left: coords.left,
+            transform: "translate(-50%, -100%)",
+            zIndex: 9999,
+          }}
+          className="pointer-events-none w-56 rounded border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] leading-relaxed text-slate-600 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+        >
+          {text}
+        </span>
+      )}
+    </>
+  );
+}
+
 function KpiCard({
   label,
   value,
   accent,
+  tooltip,
 }: {
   label: string;
   value: string;
   accent?: "teal" | "amber";
+  tooltip?: string;
 }) {
   const valueClass =
     accent === "teal"
@@ -399,9 +456,12 @@ function KpiCard({
 
   return (
     <div className="rounded border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-        {label}
-      </p>
+      <div className="flex items-center gap-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          {label}
+        </p>
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </div>
       <p className={`mt-1 text-xl font-bold tabular-nums ${valueClass}`}>{value}</p>
     </div>
   );
@@ -411,11 +471,13 @@ function Th({
   children,
   left,
   bold,
+  tooltip,
   className = "",
 }: {
   children?: React.ReactNode;
   left?: boolean;
   bold?: boolean;
+  tooltip?: string;
   className?: string;
 }) {
   return (
@@ -424,7 +486,10 @@ function Th({
         left ? "text-left" : "text-right"
       } ${bold ? "text-slate-600 dark:text-slate-300" : ""} ${className}`}
     >
-      {children}
+      <span className="inline-flex items-center gap-1">
+        {children}
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </span>
     </th>
   );
 }

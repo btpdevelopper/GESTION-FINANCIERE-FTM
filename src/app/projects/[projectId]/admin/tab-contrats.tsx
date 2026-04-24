@@ -84,8 +84,7 @@ export function TabContrats({
   );
 }
 
-const SMALL_INPUT = "w-24 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
-const WIDE_INPUT = "w-48 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
+
 
 function ContractForm({
   projectId,
@@ -201,14 +200,14 @@ function ContractForm({
             </label>
             {retenueActive && (
               <div className="flex items-center gap-2">
-                <input
+                <Input
                   type="number"
                   min="0"
                   max="100"
                   step="0.01"
                   value={retenuePercent}
                   onChange={(e) => setRetenuePercent(e.target.value)}
-                  className={SMALL_INPUT}
+                  className="w-24"
                 />
                 <span className="text-sm text-slate-500">% du montant de la période</span>
               </div>
@@ -221,14 +220,14 @@ function ContractForm({
               Avance travaux
             </h4>
             <div className="flex items-center gap-2">
-              <input
+              <Input
                 type="number"
                 min="0"
                 step="0.01"
                 placeholder="Montant avance (€)"
                 value={avanceAmount}
                 onChange={(e) => setAvanceAmount(e.target.value)}
-                className={WIDE_INPUT}
+                className="w-48"
               />
               <span className="text-sm text-slate-500">€ HT (laisser vide si aucune)</span>
             </div>
@@ -245,12 +244,12 @@ function ContractForm({
                     À partir de la situation n°
                   </label>
                   {refundTrigger === "month" && (
-                    <input
+                    <Input
                       type="number"
                       min="1"
                       value={refundStartMonth}
                       onChange={(e) => setRefundStartMonth(e.target.value)}
-                      className={SMALL_INPUT}
+                      className="w-24"
                     />
                   )}
                   <label className="flex cursor-pointer items-center gap-1.5 text-sm">
@@ -263,14 +262,14 @@ function ContractForm({
                   </label>
                   {refundTrigger === "percent" && (
                     <>
-                      <input
+                      <Input
                         type="number"
                         min="0"
                         max="100"
                         step="0.1"
                         value={refundStartPercent}
                         onChange={(e) => setRefundStartPercent(e.target.value)}
-                        className={SMALL_INPUT}
+                        className="w-24"
                       />
                       <span className="text-sm text-slate-500">% d&apos;avancement</span>
                     </>
@@ -278,12 +277,12 @@ function ContractForm({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-slate-500">Remboursé en</span>
-                  <input
+                  <Input
                     type="number"
                     min="1"
                     value={refundInstallments}
                     onChange={(e) => setRefundInstallments(e.target.value)}
-                    className={SMALL_INPUT}
+                    className="w-24"
                   />
                   <span className="text-sm text-slate-500">versements égaux</span>
                 </div>
@@ -312,14 +311,14 @@ function ContractForm({
             </div>
             {penaltyType === "DAILY_RATE" && (
               <div className="flex items-center gap-2">
-                <input
+                <Input
                   type="number"
                   min="0"
                   step="0.01"
                   placeholder="Taux journalier (€/j)"
                   value={dailyRate}
                   onChange={(e) => setDailyRate(e.target.value)}
-                  className={WIDE_INPUT}
+                  className="w-48"
                 />
                 <span className="text-sm text-slate-500">€ / jour de retard</span>
               </div>

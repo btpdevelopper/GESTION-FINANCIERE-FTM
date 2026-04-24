@@ -13,13 +13,18 @@ export function WizardForm() {
   // Step 1: Gen
   const [projectName, setProjectName] = useState("");
   const [projectCode, setProjectCode] = useState("");
+  const [projectAddress, setProjectAddress] = useState("");
+  const [projectCity, setProjectCity] = useState("");
+  const [projectPostalCode, setProjectPostalCode] = useState("");
+  const [projectStartDate, setProjectStartDate] = useState("");
+  const [projectEndDate, setProjectEndDate] = useState("");
 
   // Step 2: Lots & Orgs
   const [lots, setLots] = useState<{
     id: number;
     label: string;
     description: string;
-    organizations: { id: number; name: string; montantStr: string }[];
+    organizations: { id: number; name: string; montantStr: string; address: string; city: string; postalCode: string; siret: string }[];
   }[]>([
     { id: Date.now(), label: "Lot 1", description: "", organizations: [] }
   ]);
@@ -43,10 +48,10 @@ export function WizardForm() {
   };
 
   const addCompanyToLot = (lotId: number) => {
-    setLots(lots.map(l => l.id === lotId ? { ...l, organizations: [...l.organizations, { id: Date.now(), name: "", montantStr: "" }] } : l));
+    setLots(lots.map(l => l.id === lotId ? { ...l, organizations: [...l.organizations, { id: Date.now(), name: "", montantStr: "", address: "", city: "", postalCode: "", siret: "" }] } : l));
   };
 
-  const updateCompanyInLot = (lotId: number, companyId: number, field: "name" | "montantStr", value: string) => {
+  const updateCompanyInLot = (lotId: number, companyId: number, field: "name" | "montantStr" | "address" | "city" | "postalCode" | "siret", value: string) => {
     setLots(lots.map(l => l.id === lotId ? {
       ...l, organizations: l.organizations.map(o => o.id === companyId ? { ...o, [field]: value } : o)
     } : l));
@@ -106,12 +111,21 @@ export function WizardForm() {
         await createProjectExecutionAction({
           name: projectName,
           code: projectCode,
+          address: projectAddress,
+          city: projectCity,
+          postalCode: projectPostalCode,
+          startDate: projectStartDate || undefined,
+          endDate: projectEndDate || undefined,
           lots: lots.map(l => ({
             label: l.label,
             description: l.description,
             organizations: l.organizations.map(o => ({
               organizationName: o.name,
-              montantMarcheHtCents: parseMontantToCents(o.montantStr)
+              montantMarcheHtCents: parseMontantToCents(o.montantStr),
+              address: o.address || undefined,
+              city: o.city || undefined,
+              postalCode: o.postalCode || undefined,
+              siret: o.siret || undefined,
             }))
           })),
           users: users.map(u => ({
@@ -187,6 +201,61 @@ export function WizardForm() {
               />
             </label>
           </div>
+
+          {/* Address */}
+          <div className="mt-2">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Adresse du chantier</p>
+            <div className="space-y-3">
+              <input
+                type="text"
+                placeholder="N° et nom de rue"
+                value={projectAddress}
+                onChange={(e) => setProjectAddress(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-transparent px-4 py-2 text-sm dark:border-slate-700"
+              />
+              <div className="grid gap-3 sm:grid-cols-3">
+                <input
+                  type="text"
+                  placeholder="Code postal"
+                  value={projectPostalCode}
+                  onChange={(e) => setProjectPostalCode(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-transparent px-4 py-2 text-sm dark:border-slate-700"
+                />
+                <input
+                  type="text"
+                  placeholder="Ville"
+                  value={projectCity}
+                  onChange={(e) => setProjectCity(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-transparent px-4 py-2 text-sm sm:col-span-2 dark:border-slate-700"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Dates */}
+          <div className="mt-2">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Dates du projet</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-xs text-slate-500">Date de début</span>
+                <input
+                  type="date"
+                  value={projectStartDate}
+                  onChange={(e) => setProjectStartDate(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-transparent px-4 py-2 dark:border-slate-700"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-xs text-slate-500">Date de fin prévisionnelle</span>
+                <input
+                  type="date"
+                  value={projectEndDate}
+                  onChange={(e) => setProjectEndDate(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-transparent px-4 py-2 dark:border-slate-700"
+                />
+              </label>
+            </div>
+          </div>
         </div>
       )}
 
@@ -231,33 +300,71 @@ export function WizardForm() {
                 <div className="space-y-3">
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Entreprises & Montants</h4>
                   {lot.organizations.map((org) => (
-                    <div key={org.id} className="flex flex-wrap items-end gap-3 sm:flex-nowrap">
-                      <label className="flex flex-1 flex-col gap-1 text-sm">
-                        <span className="text-xs text-slate-500">Raison Sociale</span>
-                        <input
-                          type="text"
-                          placeholder="Nom de l'entreprise"
-                          value={org.name}
-                          onChange={(e) => updateCompanyInLot(lot.id, org.id, "name", e.target.value)}
-                          className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 dark:border-slate-700 dark:bg-black"
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1 text-sm sm:w-48">
-                        <span className="text-xs text-slate-500">Marché HT initial (€)</span>
-                        <input
-                          type="text"
-                          placeholder="Ex: 50000,50"
-                          value={org.montantStr}
-                          onChange={(e) => updateCompanyInLot(lot.id, org.id, "montantStr", e.target.value)}
-                          className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 dark:border-slate-700 dark:bg-black"
-                        />
-                      </label>
-                      <button
-                        onClick={() => removeCompanyFromLot(lot.id, org.id)}
-                        className="mb-1 rounded-md px-2 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
-                      >
-                        Retirer
-                      </button>
+                    <div key={org.id} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-black">
+                      <div className="flex flex-wrap items-end gap-3 sm:flex-nowrap">
+                        <label className="flex flex-1 flex-col gap-1 text-sm">
+                          <span className="text-xs text-slate-500">Raison Sociale</span>
+                          <input
+                            type="text"
+                            placeholder="Nom de l'entreprise"
+                            value={org.name}
+                            onChange={(e) => updateCompanyInLot(lot.id, org.id, "name", e.target.value)}
+                            className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 dark:border-slate-700 dark:bg-black"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-sm sm:w-48">
+                          <span className="text-xs text-slate-500">Marché HT initial (€)</span>
+                          <input
+                            type="text"
+                            placeholder="Ex: 50000,50"
+                            value={org.montantStr}
+                            onChange={(e) => updateCompanyInLot(lot.id, org.id, "montantStr", e.target.value)}
+                            className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 dark:border-slate-700 dark:bg-black"
+                          />
+                        </label>
+                        <button
+                          onClick={() => removeCompanyFromLot(lot.id, org.id)}
+                          className="mb-1 rounded-md px-2 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                        >
+                          Retirer
+                        </button>
+                      </div>
+                      {/* Collapsible org details */}
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-[11px] font-medium text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                          Détails entreprise (adresse, SIRET)
+                        </summary>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          <input
+                            type="text"
+                            placeholder="Adresse"
+                            value={org.address}
+                            onChange={(e) => updateCompanyInLot(lot.id, org.id, "address", e.target.value)}
+                            className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900 sm:col-span-2"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Code postal"
+                            value={org.postalCode}
+                            onChange={(e) => updateCompanyInLot(lot.id, org.id, "postalCode", e.target.value)}
+                            className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Ville"
+                            value={org.city}
+                            onChange={(e) => updateCompanyInLot(lot.id, org.id, "city", e.target.value)}
+                            className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+                          />
+                          <input
+                            type="text"
+                            placeholder="SIRET (14 chiffres)"
+                            value={org.siret}
+                            onChange={(e) => updateCompanyInLot(lot.id, org.id, "siret", e.target.value)}
+                            className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900 sm:col-span-2"
+                          />
+                        </div>
+                      </details>
                     </div>
                   ))}
                   <button
@@ -368,6 +475,14 @@ export function WizardForm() {
                 <p className="text-sm text-slate-500">Projet</p>
                 <p className="text-lg font-semibold">{projectName}</p>
                 {projectCode && <p className="text-xs text-slate-400">Code: {projectCode}</p>}
+                {projectAddress && <p className="text-xs text-slate-400">{projectAddress}{projectPostalCode ? `, ${projectPostalCode}` : ""}{projectCity ? ` ${projectCity}` : ""}</p>}
+                {(projectStartDate || projectEndDate) && (
+                  <p className="text-xs text-slate-400">
+                    {projectStartDate && `Début: ${projectStartDate}`}
+                    {projectStartDate && projectEndDate && " — "}
+                    {projectEndDate && `Fin: ${projectEndDate}`}
+                  </p>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-sm text-slate-500">Contrat de Base (Calculé)</p>

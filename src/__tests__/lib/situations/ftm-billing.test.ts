@@ -22,9 +22,13 @@ const baseSettings: CompanyContractSettings = {
   penaltyType: "NONE",
   penaltyDailyRateCents: null,
   forecastWaived: false,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+  cautionBancaireActive: false,
+  cautionBancaireInsurer: null,
+  cautionBancaireContractNumber: null,
+  cautionBancaireAmountCents: null,
+  cautionBancaireDocumentUrl: null,
+  cautionBancaireDocumentName: null,
+} as CompanyContractSettings;
 
 // ─── billedAmountCents computation (floor division) ──────────────────────────
 

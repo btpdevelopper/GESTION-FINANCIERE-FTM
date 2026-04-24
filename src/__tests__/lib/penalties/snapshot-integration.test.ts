@@ -21,6 +21,12 @@ function makeSettings(overrides: Partial<CompanyContractSettings> = {}): Company
     penaltyType: "NONE",
     penaltyDailyRateCents: null,
     forecastWaived: false,
+    cautionBancaireActive: false,
+    cautionBancaireInsurer: null,
+    cautionBancaireContractNumber: null,
+    cautionBancaireAmountCents: null,
+    cautionBancaireDocumentUrl: null,
+    cautionBancaireDocumentName: null,
     ...overrides,
   };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, Fragment, useRef } from "react";
 import Link from "next/link";
 import {
   BarChart,
@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Info } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badge";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -147,13 +147,26 @@ export function SituationsDashboard({ data, projectId }: Props) {
     <div className="space-y-5">
       {/* ── KPI cards ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard label="Marché actuel total" value={fmtEur(totals.marcheActuel)} />
-        <KpiCard label="Cumulé approuvé" value={fmtEur(totals.cumulatif)} />
-        <KpiCard label="Net total validé" value={fmtEur(totals.netPaye)} />
+        <KpiCard
+          label="Marché actuel total"
+          value={fmtEur(totals.marcheActuel)}
+          tooltip="Somme des marchés actuels de toutes les entreprises. Le marché actuel = Marché de base + FTM validés (avenants). Il représente la valeur contractuelle totale du projet à date."
+        />
+        <KpiCard
+          label="Cumulé approuvé"
+          value={fmtEur(totals.cumulatif)}
+          tooltip="Somme des montants cumulés approuvés (statut MOE_APPROVED ou supérieur) sur toutes les entreprises. Correspond au montant HT total reconnu par le MOE comme réalisé depuis le début du chantier."
+        />
+        <KpiCard
+          label="Net total validé"
+          value={fmtEur(totals.netPaye)}
+          tooltip="Somme des montants nets payés sur les situations au statut MOA_APPROVED. Calculé après déduction de la retenue de garantie, du remboursement d'avance et des pénalités."
+        />
         <KpiCard
           label="Avancement global"
           value={`${totals.avancement.toFixed(1)} %`}
           accent={totals.avancement >= 100 ? "red" : totals.avancement >= 75 ? "teal" : undefined}
+          tooltip="Ratio : Cumulé approuvé ÷ Marché actuel total × 100. Indique le pourcentage du marché exécuté et reconnu par le MOE. Un dépassement de 100 % signale un hors-marché potentiel."
         />
       </div>
 
@@ -270,13 +283,13 @@ export function SituationsDashboard({ data, projectId }: Props) {
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/40">
                 <Th left>Entreprise</Th>
-                <Th>Marché de base</Th>
-                <Th className="hidden md:table-cell">FTM validé</Th>
-                <Th bold>Marché actuel</Th>
-                <Th>Cumulé approuvé</Th>
-                <Th className="hidden lg:table-cell">Avancement</Th>
-                <Th className="hidden lg:table-cell">Reste à facturer</Th>
-                <Th>Net validé</Th>
+                <Th tooltip="Montant HT initial signé au contrat, hors tout avenant.">Marché de base</Th>
+                <Th className="hidden md:table-cell" tooltip="Somme des Feuilles de Travaux Modificatives (avenants) dont le statut est MOA_APPROVED. S'ajoute au marché de base pour former le marché actuel.">FTM validé</Th>
+                <Th bold tooltip="Marché de base + FTM validés. Représente la valeur contractuelle totale en vigueur pour cette entreprise.">Marché actuel</Th>
+                <Th tooltip="Montant HT cumulé depuis le début du chantier, tel qu'approuvé par le MOE sur la dernière situation en date (statut ≥ MOE_APPROVED).">Cumulé approuvé</Th>
+                <Th className="hidden lg:table-cell" tooltip="Cumulé approuvé ÷ Marché actuel × 100. Représente la part du marché déjà réalisée et reconnue par le MOE.">Avancement</Th>
+                <Th className="hidden lg:table-cell" tooltip="Marché actuel − Cumulé approuvé. Montant restant à facturer pour atteindre la valeur totale du marché. Négatif si le cumulatif dépasse le marché.">Reste à facturer</Th>
+                <Th tooltip="Somme des montants nets sur les situations au statut MOA_APPROVED, après retenue de garantie, remboursement d'avance et pénalités.">Net validé</Th>
                 <Th>{/* toggle */}</Th>
               </tr>
             </thead>
@@ -361,14 +374,61 @@ export function SituationsDashboard({ data, projectId }: Props) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
+/**
+ * Fixed-position tooltip — escapes any overflow:hidden / overflow-x:auto
+ * ancestor (e.g. the table scroll wrapper) by using getBoundingClientRect.
+ */
+function InfoTooltip({ text }: { text: string }) {
+  const [visible, setVisible] = useState(false);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const ref = useRef<HTMLSpanElement>(null);
+
+  function handleMouseEnter() {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setCoords({ top: r.top - 6, left: r.left + r.width / 2 });
+    }
+    setVisible(true);
+  }
+
+  return (
+    <>
+      <span
+        ref={ref}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={() => setVisible(false)}
+        className="inline-flex items-center"
+      >
+        <Info className="h-3 w-3 cursor-help text-slate-300 transition-colors hover:text-slate-500 dark:text-slate-600 dark:hover:text-slate-400" />
+      </span>
+      {visible && (
+        <span
+          style={{
+            position: "fixed",
+            top: coords.top,
+            left: coords.left,
+            transform: "translate(-50%, -100%)",
+            zIndex: 9999,
+          }}
+          className="pointer-events-none w-56 rounded border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] leading-relaxed text-slate-600 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+        >
+          {text}
+        </span>
+      )}
+    </>
+  );
+}
+
 function KpiCard({
   label,
   value,
   accent,
+  tooltip,
 }: {
   label: string;
   value: string;
   accent?: "teal" | "red";
+  tooltip?: string;
 }) {
   const valueClass =
     accent === "teal"
@@ -379,9 +439,12 @@ function KpiCard({
 
   return (
     <div className="rounded border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-        {label}
-      </p>
+      <div className="flex items-center gap-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          {label}
+        </p>
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </div>
       <p className={`mt-1 text-xl font-bold tabular-nums ${valueClass}`}>{value}</p>
     </div>
   );
@@ -391,11 +454,13 @@ function Th({
   children,
   left,
   bold,
+  tooltip,
   className = "",
 }: {
   children?: React.ReactNode;
   left?: boolean;
   bold?: boolean;
+  tooltip?: string;
   className?: string;
 }) {
   return (
@@ -404,7 +469,10 @@ function Th({
         left ? "text-left" : "text-right"
       } ${bold ? "text-slate-600 dark:text-slate-300" : ""} ${className}`}
     >
-      {children}
+      <span className="inline-flex items-center gap-1">
+        {children}
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </span>
     </th>
   );
 }
@@ -451,12 +519,42 @@ function DetailTable({
           <tr className="border-b border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
             <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">N°</th>
             <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Période</th>
-            <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400">Déclaré cumulé</th>
-            <th className="hidden px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400 sm:table-cell">Ajusté MOE</th>
-            <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400">Montant période</th>
-            <th className="hidden px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:table-cell">Retenue</th>
-            <th className="hidden px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:table-cell">Pénalités</th>
-            <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400">Net payé</th>
+            <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <span className="inline-flex items-center justify-end gap-1">
+                Déclaré cumulé
+                <InfoTooltip text="Montant HT cumulé depuis le début du chantier, tel que déclaré par l'entreprise dans cette situation (avant ajustement MOE)." />
+              </span>
+            </th>
+            <th className="hidden px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400 sm:table-cell">
+              <span className="inline-flex items-center justify-end gap-1">
+                Ajusté MOE
+                <InfoTooltip text="Montant HT cumulé après révision par le MOE. S'il diffère du déclaré, c'est la valeur retenue pour le calcul du montant de période." />
+              </span>
+            </th>
+            <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <span className="inline-flex items-center justify-end gap-1">
+                Montant période
+                <InfoTooltip text="Montant HT net de la période, avant déductions. Calculé comme : Cumulé accepté (période N) − Cumulé accepté (période N−1)." />
+              </span>
+            </th>
+            <th className="hidden px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:table-cell">
+              <span className="inline-flex items-center justify-end gap-1">
+                Retenue
+                <InfoTooltip text="Retenue de garantie prélevée sur cette situation. Généralement 5 % du montant de période HT, conservée jusqu'à la réception des travaux." />
+              </span>
+            </th>
+            <th className="hidden px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:table-cell">
+              <span className="inline-flex items-center justify-end gap-1">
+                Pénalités
+                <InfoTooltip text="Montant des pénalités contractuelles appliquées sur cette situation (retard, non-conformité, etc.), déduit du montant à payer." />
+              </span>
+            </th>
+            <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <span className="inline-flex items-center justify-end gap-1">
+                Net payé
+                <InfoTooltip text="Montant HT final à régler pour cette situation. Formule : Montant période − Retenue de garantie − Remboursement d'avance − Pénalités." />
+              </span>
+            </th>
             <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Statut</th>
           </tr>
         </thead>

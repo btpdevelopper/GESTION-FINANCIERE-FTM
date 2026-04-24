@@ -93,6 +93,22 @@ export const CAPABILITY_LABELS: Record<Capability, { label: string; description:
     label: "Contester une pénalité (Entreprise)",
     description: "Permet à une entreprise de contester une pénalité approuvée avec justification obligatoire.",
   },
+  SUBMIT_DGD: {
+    label: "Soumettre un DGD (Entreprise)",
+    description: "Permet de créer et soumettre le Projet de Décompte Final pour clôturer le contrat.",
+  },
+  REVIEW_DGD_MOE: {
+    label: "Analyser un DGD (MOE)",
+    description: "Peut analyser le décompte final soumis par l'entreprise, accepter, modifier ou rejeter.",
+  },
+  VALIDATE_DGD_MOA: {
+    label: "Valider un DGD (MOA)",
+    description: "Validation finale du Décompte Général Définitif par le maître d'ouvrage.",
+  },
+  CONTEST_DGD: {
+    label: "Contester un DGD (Entreprise)",
+    description: "Permet de contester le DGD approuvé dans le délai légal de 30 jours (Mémoire en réclamation).",
+  },
 };
 
 export function labelForCapability(c: Capability): string {

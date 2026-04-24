@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectMember } from "@/server/membership";
 import { getProjectPendingCounts } from "@/server/notifications/pending-counts";
 import { getOrgMarcheTotalCents } from "@/server/situations/situation-queries";
-import { FileEdit, FileText, Settings, BarChart2, AlertTriangle } from "lucide-react";
+import { FileEdit, FileText, FileCheck2, Settings, BarChart2, AlertTriangle } from "lucide-react";
 import { ProjectRole } from "@prisma/client";
 import { CountBadge } from "@/components/ui";
 
@@ -71,6 +71,15 @@ export default async function ProjectHomePage({
         "Gestion des pénalités contractuelles par entreprise, soumises par le MOE et validées par le MOA.",
       pendingCount: counts.penalties,
       show: pm.role !== ProjectRole.ENTREPRISE || counts.penalties > 0,
+    },
+    {
+      href: `/projects/${projectId}/dgd`,
+      icon: FileCheck2,
+      label: "Décompte Général Définitif",
+      description:
+        "Clôture financière des marchés : consolidation, validation et solde final par entreprise.",
+      pendingCount: counts.dgd,
+      show: true,
     },
     {
       href: `/projects/${projectId}/admin`,

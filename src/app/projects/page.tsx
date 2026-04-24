@@ -2,9 +2,10 @@ import Link from "next/link";
 import { getAuthUser } from "@/lib/auth/user";
 import { listProjectsForUser } from "@/server/membership";
 import { prisma } from "@/lib/prisma";
-import { Button, CountBadge } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { getProjectPendingCounts } from "@/server/notifications/pending-counts";
-import { Plus, FolderOpen, ChevronRight } from "lucide-react";
+import { Plus, FolderOpen } from "lucide-react";
+import { ProjectGrid } from "./project-grid";
 
 export default async function ProjectsPage() {
   const user = await getAuthUser();
@@ -54,38 +55,19 @@ export default async function ProjectsPage() {
       </div>
 
       {projects.length > 0 ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {projects.map((p) => {
-            const counts = countMap.get(p.id);
-            return (
-              <Link
-                key={p.id}
-                href={`/projects/${p.id}`}
-                className="flex flex-col justify-between rounded border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700 dark:hover:bg-slate-800/60"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  {p.code ? (
-                    <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {p.code}
-                    </span>
-                  ) : (
-                    <span />
-                  )}
-                  <div className="flex items-center gap-1.5">
-                    {counts && counts.total > 0 && <CountBadge count={counts.total} />}
-                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <p className="line-clamp-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    {p.name}
-                  </p>
-                  <p className="mt-2 text-xs text-slate-500">Accéder au projet →</p>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
+        <ProjectGrid
+          projects={projects.map((p) => ({
+            id: p.id,
+            name: p.name,
+            code: p.code,
+            city: p.city,
+            startDate: p.startDate?.toISOString() ?? null,
+            endDate: p.endDate?.toISOString() ?? null,
+          }))}
+          countMap={Object.fromEntries(
+            Array.from(countMap.entries()).map(([id, c]) => [id, c.total]),
+          )}
+        />
       ) : (
         <div className="rounded border-2 border-dashed border-slate-200 bg-white p-10 text-center dark:border-slate-700 dark:bg-slate-900">
           <FolderOpen className="mx-auto mb-3 h-8 w-8 text-slate-300 dark:text-slate-700" />

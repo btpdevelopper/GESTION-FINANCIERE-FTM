@@ -36,6 +36,11 @@ export async function updateProjectAction(input: {
   projectId: string;
   name: string;
   code: string;
+  address?: string;
+  city?: string;
+  postalCode?: string;
+  startDate?: string | null;
+  endDate?: string | null;
 }) {
   await requireAdmin(input.projectId);
   const name = input.name.trim();
@@ -46,12 +51,42 @@ export async function updateProjectAction(input: {
     data: {
       name,
       code: input.code.trim() || null,
+      address: input.address?.trim() || null,
+      city: input.city?.trim() || null,
+      postalCode: input.postalCode?.trim() || null,
+      startDate: input.startDate ? new Date(input.startDate) : null,
+      endDate: input.endDate ? new Date(input.endDate) : null,
     },
   });
 
   revalidatePath(`/projects/${input.projectId}/admin`);
   return { ok: true };
 }
+
+export async function updateOrganizationAction(input: {
+  projectId: string;
+  organizationId: string;
+  address?: string;
+  city?: string;
+  postalCode?: string;
+  siret?: string;
+}) {
+  await requireAdmin(input.projectId);
+
+  await prisma.organization.update({
+    where: { id: input.organizationId },
+    data: {
+      address: input.address?.trim() || null,
+      city: input.city?.trim() || null,
+      postalCode: input.postalCode?.trim() || null,
+      siret: input.siret?.trim() || null,
+    },
+  });
+
+  revalidatePath(`/projects/${input.projectId}/admin`);
+  return { ok: true };
+}
+
 
 export async function addLotAction(input: {
   projectId: string;

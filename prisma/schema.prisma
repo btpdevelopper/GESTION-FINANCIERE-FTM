@@ -31,6 +31,10 @@ model Organization {
   id                 String                     @id @default(uuid()) @db.Uuid
   name               String
   slug               String?                    @unique
+  address            String?                    @db.Text
+  city               String?
+  postalCode         String?
+  siret              String?
   userOrganizations  UserOrganization[]
   projectMembers     ProjectMember[]
   ftmsConcerned      FtmConcernedOrganization[]
@@ -40,6 +44,7 @@ model Organization {
   contractSettings   CompanyContractSettings[]
   forecasts          Forecast[]
   penalties            Penalty[]
+  dgdRecords             DgdRecord[]
   situationFtmBillings SituationFtmBilling[]
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
@@ -62,6 +67,11 @@ model Project {
   id               String                   @id @default(uuid()) @db.Uuid
   name             String
   code             String?
+  address          String?                  @db.Text
+  city             String?
+  postalCode       String?
+  startDate        DateTime?
+  endDate          DateTime?
   baseContract     BaseContract?
   lots             ProjectLot[]
   members          ProjectMember[]
@@ -72,6 +82,7 @@ model Project {
   contractSettings CompanyContractSettings[]
   forecasts        Forecast[]
   penalties            Penalty[]
+  dgdRecords           DgdRecord[]
   situationFtmBillings SituationFtmBilling[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
@@ -135,6 +146,10 @@ model ProjectMember {
   forecastReviews        ForecastReview[]                  @relation("ForecastReviewMember")
   createdPenalties       Penalty[]                         @relation("PenaltyCreator")
   penaltyReviews         PenaltyReview[]                   @relation("PenaltyReviewMember")
+  submittedDgds          DgdRecord[]                       @relation("DgdSubmitter")
+  moeReviewedDgds        DgdRecord[]                       @relation("DgdMoeReviewer")
+  moaValidatedDgds       DgdRecord[]                       @relation("DgdMoaValidator")
+  dgdReviews             DgdReview[]                       @relation("DgdReviewMember")
 
   @@unique([userId, projectId, organizationId])
   @@index([projectId])
@@ -186,6 +201,10 @@ enum Capability {
   CREATE_PENALTY
   VALIDATE_PENALTY_MOA
   CONTEST_PENALTY
+  SUBMIT_DGD
+  REVIEW_DGD_MOE
+  VALIDATE_DGD_MOA
+  CONTEST_DGD
 }
 
 model ProjectPermissionGroupCapability {
@@ -433,6 +452,13 @@ model CompanyContractSettings {
   penaltyDailyRateCents BigInt?
 
   forecastWaived Boolean @default(false)
+
+  cautionBancaireActive         Boolean  @default(false)
+  cautionBancaireInsurer        String?
+  cautionBancaireContractNumber String?
+  cautionBancaireAmountCents    BigInt?
+  cautionBancaireDocumentUrl    String?
+  cautionBancaireDocumentName   String?
 
   project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -791,4 +817,114 @@ model SituationFtmBilling {
   @@unique([situationId, ftmRecordId])
   @@index([situationId])
   @@index([ftmRecordId, organizationId])
+}
+
+// --- DGD (Décompte Général Définitif) ---
+
+enum DgdStatus {
+  DRAFT
+  PENDING_MOE
+  PENDING_MOA
+  APPROVED
+  DISPUTED
+  RESOLVED_AMICABLY
+  IN_LITIGATION
+  RESOLVED_BY_COURT
+}
+
+enum DgdEventType {
+  SUBMITTED
+  MOE_REVIEWED
+  MOA_VALIDATED
+  DISPUTED
+  RESOLVED_AMICABLY
+  IN_LITIGATION
+  RESOLVED_BY_COURT
+}
+
+model DgdRecord {
+  id             String    @id @default(uuid()) @db.Uuid
+  projectId      String    @db.Uuid
+  organizationId String    @db.Uuid
+  status         DgdStatus @default(DRAFT)
+
+  // Financial snapshot — frozen at submission time
+  marcheBaseHtCents         BigInt?
+  ftmAcceptedTotalHtCents   BigInt?
+  marcheActualiseHtCents    BigInt?
+  penaltiesTotalHtCents     BigInt?
+  retenueGarantieCents      BigInt?
+  acomptesVersesHtCents     BigInt?   // last approved cumulative (gross)
+  soldeDgdHtCents           BigInt?   // = actualisé - penalties - retenue - acomptes
+
+  // ENTREPRISE submission
+  submittedAt           DateTime?
+  submittedByMemberId   String?   @db.Uuid
+
+  // MOE analysis
+  moeComment              String?   @db.Text
+  moeAdjustedSoldeHtCents BigInt?
+  moeReviewedAt           DateTime?
+  moeReviewedByMemberId   String?   @db.Uuid
+
+  // MOA validation
+  moaComment              String?   @db.Text
+  moaValidatedAt          DateTime?
+  moaValidatedByMemberId  String?   @db.Uuid
+
+  // Dispute (NF P 03-001 Art. 19.6)
+  disputeDeadline       DateTime?   // Set at APPROVED = moaValidatedAt + 30 days
+  disputedAt            DateTime?
+  disputeJustification  String?     @db.Text
+  disputeDocumentUrl    String?     // Mémoire en réclamation PDF
+  disputeDocumentName   String?
+
+  // Amicable resolution
+  amicableComment               String?   @db.Text
+  amicableAdjustedSoldeHtCents  BigInt?
+  amicableDocumentUrl           String?   // Protocole d'accord transactionnel
+  amicableDocumentName          String?
+  amicableResolvedAt            DateTime?
+
+  // Litigation
+  litigationDeclaredAt  DateTime?
+  litigationComment     String?   @db.Text
+
+  // Court resolution
+  courtSoldeHtCents     BigInt?
+  courtDocumentUrl      String?   // Jugement PDF
+  courtDocumentName     String?
+  courtResolvedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  submittedBy    ProjectMember? @relation("DgdSubmitter", fields: [submittedByMemberId], references: [id])
+  moeReviewedBy  ProjectMember? @relation("DgdMoeReviewer", fields: [moeReviewedByMemberId], references: [id])
+  moaValidatedBy ProjectMember? @relation("DgdMoaValidator", fields: [moaValidatedByMemberId], references: [id])
+  reviews        DgdReview[]
+
+  @@unique([projectId, organizationId])
+  @@index([projectId])
+  @@index([organizationId])
+  @@index([status])
+}
+
+model DgdReview {
+  id            String       @id @default(uuid()) @db.Uuid
+  dgdRecordId   String       @db.Uuid
+  memberId      String       @db.Uuid
+  eventType     DgdEventType
+  decision      String?
+  comment       String?      @db.Text
+  adjustedSoldeCents BigInt?
+  createdAt     DateTime     @default(now())
+
+  dgdRecord DgdRecord     @relation(fields: [dgdRecordId], references: [id], onDelete: Cascade)
+  member    ProjectMember @relation("DgdReviewMember", fields: [memberId], references: [id])
+
+  @@index([dgdRecordId, createdAt])
 }

@@ -55,7 +55,7 @@ export function ConfigurationClient({
         ))}
       </TabNav>
 
-      <div className="py-5">
+      <div className="py-4">
         {activeTab === "SETTINGS" && <TabGeneral project={project} />}
         {activeTab === "FINANCE" && <TabFinance projectId={project.id} lots={project.lots} />}
         {activeTab === "RBAC" && (

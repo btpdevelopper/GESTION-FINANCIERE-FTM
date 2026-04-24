@@ -188,12 +188,14 @@ NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 DATABASE_URL
+NEXT_PUBLIC_APP_URL
 RESEND_API_KEY
+EMAIL_FROM
 INNGEST_EVENT_KEY
 INNGEST_SIGNING_KEY
-CRON_SECRET
-EMAIL_FROM
 ```
+Note: `NEXT_PUBLIC_APP_URL` was missing from this list but is used in email/Inngest payloads.
+All scheduled jobs run through Inngest — there are no raw Vercel cron endpoints in this project.
 
 ## UI & Styling Guidelines (Tailwind CSS)
 This application is built for construction professionals and requires a highly information-dense, sober, and strictly professional Enterprise B2B SaaS interface. Avoid consumer-facing, "flashy" design patterns.

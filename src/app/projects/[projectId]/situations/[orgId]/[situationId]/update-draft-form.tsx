@@ -263,6 +263,8 @@ export function UpdateDraftForm({
           ...(url !== null ? { documentUrl: url, documentName: name } : {}),
         });
         await submitSituationAction({ situationId, projectId });
+        setSuccess("Situation soumise au MOE avec succès.");
+        clearFile();
         router.refresh();
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Erreur inconnue.");
@@ -627,18 +629,17 @@ export function UpdateDraftForm({
           )}
 
           <div className="flex flex-wrap gap-2">
-            <button
-              type="submit"
-              disabled={isPending}
-              className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-            >
-              {pendingAction === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {pendingAction === "save"
-                ? "Enregistrement…"
-                : isCorrection
-                ? "Enregistrer la correction"
-                : "Enregistrer le brouillon"}
-            </button>
+            {/* Save as draft — only available in DRAFT mode, not during correction */}
+            {!isCorrection && (
+              <button
+                type="submit"
+                disabled={isPending}
+                className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                {pendingAction === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {pendingAction === "save" ? "Enregistrement…" : "Sauvegarder en brouillon"}
+              </button>
+            )}
             <button
               type="button"
               disabled={isPending}

@@ -14,12 +14,21 @@ type Role = "MOA" | "MOE" | "ENTREPRISE";
 export async function createProjectExecutionAction(input: {
   name: string;
   code?: string;
+  address?: string;
+  city?: string;
+  postalCode?: string;
+  startDate?: string;
+  endDate?: string;
   lots: {
     label: string;
     description?: string;
     organizations: {
       organizationName: string;
       montantMarcheHtCents: string;
+      address?: string;
+      city?: string;
+      postalCode?: string;
+      siret?: string;
     }[];
   }[];
   users: {
@@ -65,6 +74,11 @@ export async function createProjectExecutionAction(input: {
       data: {
         name: input.name,
         code: input.code || null,
+        address: input.address?.trim() || null,
+        city: input.city?.trim() || null,
+        postalCode: input.postalCode?.trim() || null,
+        startDate: input.startDate ? new Date(input.startDate) : null,
+        endDate: input.endDate ? new Date(input.endDate) : null,
         baseContract: {
           create: {
             label: "Marché de Base Global",
@@ -95,10 +109,47 @@ export async function createProjectExecutionAction(input: {
     input.users.forEach(u => orgNames.add(u.organizationName));
 
     const orgMap = new Map<string, string>(); // organizationName -> id
+    // Build a lookup of org metadata from lot inputs
+    const orgMetadata = new Map<string, { address?: string; city?: string; postalCode?: string; siret?: string }>();
+    for (const lot of input.lots) {
+      for (const o of lot.organizations) {
+        if (!orgMetadata.has(o.organizationName)) {
+          orgMetadata.set(o.organizationName, {
+            address: o.address,
+            city: o.city,
+            postalCode: o.postalCode,
+            siret: o.siret,
+          });
+        }
+      }
+    }
+
     for (const name of Array.from(orgNames)) {
       let org = await tx.organization.findFirst({ where: { name } });
       if (!org) {
-        org = await tx.organization.create({ data: { name } });
+        const meta = orgMetadata.get(name);
+        org = await tx.organization.create({
+          data: {
+            name,
+            address: meta?.address?.trim() || null,
+            city: meta?.city?.trim() || null,
+            postalCode: meta?.postalCode?.trim() || null,
+            siret: meta?.siret?.trim() || null,
+          },
+        });
+      } else {
+        // Update existing org metadata if provided and currently empty
+        const meta = orgMetadata.get(name);
+        if (meta) {
+          const updates: Record<string, string | null> = {};
+          if (meta.address?.trim() && !org.address) updates.address = meta.address.trim();
+          if (meta.city?.trim() && !org.city) updates.city = meta.city.trim();
+          if (meta.postalCode?.trim() && !org.postalCode) updates.postalCode = meta.postalCode.trim();
+          if (meta.siret?.trim() && !org.siret) updates.siret = meta.siret.trim();
+          if (Object.keys(updates).length > 0) {
+            await tx.organization.update({ where: { id: org.id }, data: updates });
+          }
+        }
       }
       orgMap.set(name, org.id);
     }

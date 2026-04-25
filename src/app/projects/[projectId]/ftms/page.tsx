@@ -6,6 +6,7 @@ import { requireProjectMember } from "@/server/membership";
 import { listFtms, listFtmDemands } from "@/server/ftm/queries";
 import { FtmKanbanBoard } from "./kanban-board";
 import { DemandsList } from "./demands-list";
+import { FtmTableView } from "./ftm-table-view";
 import { Button, CountBadge } from "@/components/ui";
 import { TAB_ACTIVE_CLS, TAB_INACTIVE_CLS } from "@/components/ui/tab-nav";
 import { Plus } from "lucide-react";
@@ -20,6 +21,7 @@ export default async function FtmsListPage({
   const { projectId } = await params;
   const { tab } = await searchParams;
   const isDemandes = tab === "demandes";
+  const isTable = tab === "tableau";
 
   const user = await getAuthUser();
   if (!user?.id) notFound();
@@ -62,9 +64,15 @@ export default async function FtmsListPage({
         <nav className="-mb-px flex" aria-label="Tabs">
           <Link
             href={`/projects/${projectId}/ftms`}
-            className={!isDemandes ? TAB_ACTIVE_CLS : TAB_INACTIVE_CLS}
+            className={!isDemandes && !isTable ? TAB_ACTIVE_CLS : TAB_INACTIVE_CLS}
           >
             Kanban FTM ({ftms.length})
+          </Link>
+          <Link
+            href={`/projects/${projectId}/ftms?tab=tableau`}
+            className={isTable ? TAB_ACTIVE_CLS : TAB_INACTIVE_CLS}
+          >
+            Tableau
           </Link>
           <Link
             href={`/projects/${projectId}/ftms?tab=demandes`}
@@ -77,7 +85,13 @@ export default async function FtmsListPage({
       </div>
 
       <div className="flex-1 overflow-hidden">
-        {isDemandes ? (
+        {isTable ? (
+          <FtmTableView
+            ftms={ftms}
+            projectId={projectId}
+            isCompany={pm.role === ProjectRole.ENTREPRISE}
+          />
+        ) : isDemandes ? (
           <div className="mx-auto max-w-5xl">
             <DemandsList
               demands={demands}

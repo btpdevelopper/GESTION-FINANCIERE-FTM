@@ -6,3 +6,4 @@ export { ModalOverlay, ModalContainer, ModalHeader, ModalFooter } from "./modal"
 export { Alert } from "./alert";
 export { EmptyState } from "./empty-state";
 export { TabNav, TabNavButton, TabNavLink, TAB_ACTIVE_CLS, TAB_INACTIVE_CLS } from "./tab-nav";
+export { Table, TableHeader, TableBody, TableFooter, TableRow, TableHead, TableCell, TableCaption } from "./table";

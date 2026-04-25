@@ -205,10 +205,28 @@ Project admin at `/projects/[projectId]/admin/` is split into four focused tabs:
 - **DGD detail** at `/projects/[projectId]/dgd/[orgId]` — full lifecycle management. ENTREPRISE sees their own data with action buttons per status. MOE/MOA see financial recap (`dgd-financial-recap.tsx`: situation table + FTM summary + DGD-flagged penalties) and review/validation forms. Document upload/download for dispute/resolution documents.
 - **DGD calculation library**: `src/lib/dgd/calculations.ts` — `calculateDgdTotals()` (async, full DB query), `computeRetenueGarantie()`, `computeSoldeDgd()`, `checkDgdEligibility()`, `getEffectiveSolde()`, `DGD_TERMINAL_STATUSES`.
 
+### FTM Table View (`/projects/[projectId]/ftms?tab=tableau`)
+
+A sortable financial summary table alongside the Kanban view, targeting directors and project managers who need at-a-glance totals.
+
+- **Component:** `src/app/projects/[projectId]/ftms/ftm-table-view.tsx` — `"use client"`, uses `@tanstack/react-table` v8.
+- **Props:** `{ projectId: string; ftms: FtmItem[]; isCompany?: boolean }` — no new server queries; all data comes from the existing `FtmItem` shape.
+- **`DerivedRow`** = `FtmItem & { submittedCount, approvedCount, pendingAmt: number|null, validatedAmt: number|null }`. Computed by `deriveRow()` which groups `quoteSubmissions` by `organizationId`, takes max `indice` per org.
+  - `pendingAmt`: sum of latest quote per org when `phase ∈ {QUOTING, ANALYSIS, MOA_FINAL}`; `null` otherwise (shows `—`).
+  - `validatedAmt`: same sum when `phase === ACCEPTED`; `null` otherwise.
+- **MOE/MOA view** (8 columns): `#`, `Titre`, `Entreprises` (first 2 badges + `+N`), `Phase`, `Devis soumis`, `Devis approuvés`, `Montant soumis`, `Montant validé`. Includes a totals footer row.
+- **ENTREPRISE view** (5 columns): `#`, `Titre`, `Phase`, `Statut devis`, `Montant` (own latest quote).
+- Quote status badge for ENTREPRISE: `—` (no submission) · `En attente` · `Accepté` · `Correction` · `Refusé`.
+- Cancelled rows render with `opacity-60` and strikethrough title.
+- Sorting: all columns except `Entreprises` are sortable; `Phase` uses a custom `PHASE_ORDER` sort fn. Initial sort: `number` ascending.
+- Row click: `useRouter()` navigates to `/projects/${projectId}/ftms/${row.original.id}`.
+- Amount formatting: `toLocaleString("fr-FR", { style: "currency", currency: "EUR" })`.
+
 ### UI Component Library (`src/components/ui/`)
 
 Reusable base components for the B2B SaaS interface. Barrel-exported via `index.ts`:
 - `alert.tsx`, `badge.tsx`, `button.tsx`, `card.tsx`, `empty-state.tsx`, `input.tsx`, `modal.tsx`, `tab-nav.tsx`
+- `table.tsx` — shadcn-style semantic HTML table primitives: `Table`, `TableHeader`, `TableBody`, `TableFooter`, `TableRow`, `TableHead`, `TableCell`, `TableCaption`. Used by the FTM Table View.
 
 ### Validation
 

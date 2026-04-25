@@ -20,6 +20,7 @@ import {
 } from "./situation-queries";
 import { getPenaltiesForSituation } from "@/server/penalties/penalty-queries";
 import { sumActivePenalties } from "@/lib/penalties/calculations";
+import { inngest } from "@/inngest/client";
 
 const IMMUTABLE_STATUSES = [
   SituationStatus.MOA_APPROVED,
@@ -277,6 +278,23 @@ export async function submitSituationAction(raw: unknown) {
     periodLabel: situation.periodLabel,
     cumulativeAmountHtCents: situation.cumulativeAmountHtCents.toString(),
   });
+
+  const org = await prisma.organization.findUnique({
+    where: { id: member.organizationId },
+    select: { name: true },
+  });
+  await inngest.send({
+    name: "situation/submitted",
+    data: {
+      projectId: data.projectId,
+      situationId: data.situationId,
+      organizationId: member.organizationId,
+      organizationName: org?.name ?? "",
+      periodLabel: situation.periodLabel,
+      numero: situation.numero,
+    },
+  });
+
   revalidate(data.projectId, member.organizationId, data.situationId);
 }
 
@@ -408,6 +426,19 @@ export async function moeReviewSituationAction(raw: unknown) {
     adjustedAmount: data.moeAdjustedAmountHtCents,
     penaltyAmountCents: penaltyAmount.toString(),
   });
+
+  await inngest.send({
+    name: "situation/moe-reviewed",
+    data: {
+      projectId: data.projectId,
+      situationId: data.situationId,
+      organizationId: situation.organizationId,
+      numero: situation.numero,
+      decision: data.decision,
+      comment: data.comment ?? null,
+    },
+  });
+
   revalidate(data.projectId, situation.organizationId, data.situationId);
 }
 
@@ -511,6 +542,17 @@ export async function moaValidateSituationAction(raw: unknown) {
       decision: "CORRECTION_NEEDED",
       comment: data.comment,
     });
+    await inngest.send({
+      name: "situation/moa-validated",
+      data: {
+        projectId: data.projectId,
+        situationId: data.situationId,
+        organizationId: situation.organizationId,
+        numero: situation.numero,
+        decision: "CORRECTION_NEEDED",
+        comment: data.comment ?? null,
+      },
+    });
     revalidate(data.projectId, situation.organizationId, data.situationId);
     return;
   }
@@ -541,6 +583,17 @@ export async function moaValidateSituationAction(raw: unknown) {
     await audit(user.id, "SITUATION_MOA_VALIDATED", data.situationId, {
       decision: "REFUSED",
       comment: data.comment,
+    });
+    await inngest.send({
+      name: "situation/moa-validated",
+      data: {
+        projectId: data.projectId,
+        situationId: data.situationId,
+        organizationId: situation.organizationId,
+        numero: situation.numero,
+        decision: "REFUSED",
+        comment: data.comment ?? null,
+      },
     });
     revalidate(data.projectId, situation.organizationId, data.situationId);
     return;
@@ -636,6 +689,19 @@ export async function moaValidateSituationAction(raw: unknown) {
     comment: data.comment,
     netAmountHtCents: snapshot.netAmountHtCents.toString(),
   });
+
+  await inngest.send({
+    name: "situation/moa-validated",
+    data: {
+      projectId: data.projectId,
+      situationId: data.situationId,
+      organizationId: situation.organizationId,
+      numero: situation.numero,
+      decision: "APPROVED",
+      comment: data.comment ?? null,
+    },
+  });
+
   revalidate(data.projectId, situation.organizationId, data.situationId);
 }
 

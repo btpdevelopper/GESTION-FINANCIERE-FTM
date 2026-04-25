@@ -8,6 +8,7 @@ import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
 import { can } from "@/lib/permissions/resolve";
 import { getOrgMarcheTotalCents } from "@/server/situations/situation-queries";
+import { inngest } from "@/inngest/client";
 
 const IMMUTABLE_STATUSES = [
   ForecastStatus.MOA_APPROVED,
@@ -220,6 +221,22 @@ export async function submitForecastAction(raw: unknown) {
   });
 
   await audit(user.id, "FORECAST_SUBMITTED", data.forecastId, { indice: forecast.indice });
+
+  const org = await prisma.organization.findUnique({
+    where: { id: member.organizationId },
+    select: { name: true },
+  });
+  await inngest.send({
+    name: "forecast/submitted",
+    data: {
+      projectId: data.projectId,
+      forecastId: data.forecastId,
+      organizationId: member.organizationId,
+      organizationName: org?.name ?? "",
+      indice: forecast.indice,
+    },
+  });
+
   revalidateForecast(data.projectId, member.organizationId);
 }
 
@@ -284,6 +301,18 @@ export async function moeReviewForecastAction(raw: unknown) {
     decision: data.decision,
     comment: data.comment,
   });
+
+  await inngest.send({
+    name: "forecast/moe-reviewed",
+    data: {
+      projectId: data.projectId,
+      forecastId: data.forecastId,
+      organizationId: forecast.organizationId,
+      decision: data.decision,
+      comment: data.comment ?? null,
+    },
+  });
+
   revalidateForecast(data.projectId, forecast.organizationId);
 }
 
@@ -350,6 +379,18 @@ export async function moaValidateForecastAction(raw: unknown) {
     decision: data.decision,
     comment: data.comment,
   });
+
+  await inngest.send({
+    name: "forecast/moa-validated",
+    data: {
+      projectId: data.projectId,
+      forecastId: data.forecastId,
+      organizationId: forecast.organizationId,
+      decision: data.decision,
+      comment: data.comment ?? null,
+    },
+  });
+
   revalidateForecast(data.projectId, forecast.organizationId);
 }
 

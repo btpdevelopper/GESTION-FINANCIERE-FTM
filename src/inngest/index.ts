@@ -26,3 +26,15 @@ export {
   onDgdInLitigation,
   onDgdResolvedByCourt,
 } from "./functions/dgd-notifications";
+
+export {
+  onSituationSubmitted,
+  onSituationMoeReviewed,
+  onSituationMoaValidated,
+} from "./functions/situation-notifications";
+
+export {
+  onForecastSubmitted,
+  onForecastMoeReviewed,
+  onForecastMoaValidated,
+} from "./functions/forecast-notifications";

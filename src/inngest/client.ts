@@ -216,6 +216,79 @@ export type DgdEvents = {
   };
 };
 
+export type SituationEvents = {
+  /** ENTREPRISE submitted a situation → notify MOE */
+  "situation/submitted": {
+    data: {
+      projectId: string;
+      situationId: string;
+      organizationId: string;
+      organizationName: string;
+      periodLabel: string;
+      numero: number;
+    };
+  };
+
+  /** MOE reviewed a situation (APPROVED / CORRECTION_NEEDED / REFUSED) → notify MOA or ENTREPRISE */
+  "situation/moe-reviewed": {
+    data: {
+      projectId: string;
+      situationId: string;
+      organizationId: string;
+      numero: number;
+      decision: "APPROVED" | "CORRECTION_NEEDED" | "REFUSED";
+      comment: string | null;
+    };
+  };
+
+  /** MOA validated a situation (APPROVED / CORRECTION_NEEDED / REFUSED) → notify ENTREPRISE (+ MOE for APPROVED/CORRECTION) */
+  "situation/moa-validated": {
+    data: {
+      projectId: string;
+      situationId: string;
+      organizationId: string;
+      numero: number;
+      decision: "APPROVED" | "CORRECTION_NEEDED" | "REFUSED";
+      comment: string | null;
+    };
+  };
+};
+
+export type ForecastEvents = {
+  /** ENTREPRISE submitted a forecast → notify MOE */
+  "forecast/submitted": {
+    data: {
+      projectId: string;
+      forecastId: string;
+      organizationId: string;
+      organizationName: string;
+      indice: number;
+    };
+  };
+
+  /** MOE reviewed a forecast (APPROVED / CORRECTION_NEEDED / REFUSED) → notify MOA or ENTREPRISE */
+  "forecast/moe-reviewed": {
+    data: {
+      projectId: string;
+      forecastId: string;
+      organizationId: string;
+      decision: "APPROVED" | "CORRECTION_NEEDED" | "REFUSED";
+      comment: string | null;
+    };
+  };
+
+  /** MOA validated a forecast (APPROVED / CORRECTION_NEEDED / REFUSED) → notify ENTREPRISE (+ MOE for APPROVED/CORRECTION) */
+  "forecast/moa-validated": {
+    data: {
+      projectId: string;
+      forecastId: string;
+      organizationId: string;
+      decision: "APPROVED" | "CORRECTION_NEEDED" | "REFUSED";
+      comment: string | null;
+    };
+  };
+};
+
 export type PenaltyEvents = {
   /** MOE submitted a penalty for MOA approval */
   "penalty/submitted": {

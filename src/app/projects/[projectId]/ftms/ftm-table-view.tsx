@@ -231,11 +231,15 @@ function buildMoaColumns(): ColumnDef<DerivedRow>[] {
       header: ({ column }) => (
         <SortHeader column={column} label="Devis soumis" align="center" />
       ),
-      cell: ({ row }) => (
-        <span className="block text-center tabular-nums">
-          {row.original.submittedCount > 0 ? row.original.submittedCount : "—"}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const total = row.original.concernedOrgs.length;
+        const submitted = row.original.submittedCount;
+        return (
+          <span className="block text-center tabular-nums">
+            {total > 0 ? `${submitted}/${total}` : "—"}
+          </span>
+        );
+      },
     },
     {
       accessorKey: "approvedCount",
@@ -365,6 +369,7 @@ export function FtmTableView({
     if (isCompany) return null;
     return {
       submittedCount: derivedRows.reduce((s, r) => s + r.submittedCount, 0),
+      concernedCount: derivedRows.reduce((s, r) => s + r.concernedOrgs.length, 0),
       approvedCount: derivedRows.reduce((s, r) => s + r.approvedCount, 0),
       pendingAmt: derivedRows.reduce((s, r) => s + (r.pendingAmt ?? 0), 0),
       validatedAmt: derivedRows.reduce((s, r) => s + (r.validatedAmt ?? 0), 0),
@@ -444,7 +449,7 @@ export function FtmTableView({
                 Total ({derivedRows.length} FTM{derivedRows.length > 1 ? "s" : ""})
               </TableCell>
               <TableCell className="text-center tabular-nums font-semibold">
-                {totals.submittedCount > 0 ? totals.submittedCount : "—"}
+                {totals.concernedCount > 0 ? `${totals.submittedCount}/${totals.concernedCount}` : "—"}
               </TableCell>
               <TableCell className="text-center tabular-nums font-semibold">
                 {totals.approvedCount > 0 ? totals.approvedCount : "—"}

@@ -7,9 +7,8 @@ import { listFtms, listFtmDemands } from "@/server/ftm/queries";
 import { FtmKanbanBoard } from "./kanban-board";
 import { DemandsList } from "./demands-list";
 import { FtmTableView } from "./ftm-table-view";
-import { Button, CountBadge } from "@/components/ui";
-import { TAB_ACTIVE_CLS, TAB_INACTIVE_CLS } from "@/components/ui/tab-nav";
-import { Plus } from "lucide-react";
+import { Button, CountBadge, SegmentedNav, SegmentedNavLink } from "@/components/ui";
+import { LayoutGrid, Table2, Inbox, Plus } from "lucide-react";
 
 export default async function FtmsListPage({
   params,
@@ -60,28 +59,34 @@ export default async function FtmsListPage({
         )}
       </div>
 
-      <div className="border-b border-slate-200 dark:border-slate-800">
-        <nav className="-mb-px flex" aria-label="Tabs">
-          <Link
+      <div>
+        <SegmentedNav>
+          <SegmentedNavLink
             href={`/projects/${projectId}/ftms`}
-            className={!isDemandes && !isTable ? TAB_ACTIVE_CLS : TAB_INACTIVE_CLS}
+            active={!isDemandes && !isTable}
+            className="flex items-center gap-1.5"
           >
-            Kanban FTM ({ftms.length})
-          </Link>
-          <Link
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Kanban ({ftms.length})
+          </SegmentedNavLink>
+          <SegmentedNavLink
             href={`/projects/${projectId}/ftms?tab=tableau`}
-            className={isTable ? TAB_ACTIVE_CLS : TAB_INACTIVE_CLS}
+            active={isTable}
+            className="flex items-center gap-1.5"
           >
+            <Table2 className="h-3.5 w-3.5" />
             Tableau
-          </Link>
-          <Link
+          </SegmentedNavLink>
+          <SegmentedNavLink
             href={`/projects/${projectId}/ftms?tab=demandes`}
-            className={`${isDemandes ? TAB_ACTIVE_CLS : TAB_INACTIVE_CLS} flex items-center gap-1.5`}
+            active={isDemandes}
+            className="flex items-center gap-1.5"
           >
+            <Inbox className="h-3.5 w-3.5" />
             Demandes ({demands.length})
             <CountBadge count={pendingDemandsCount} />
-          </Link>
-        </nav>
+          </SegmentedNavLink>
+        </SegmentedNav>
       </div>
 
       <div className="flex-1 overflow-hidden">

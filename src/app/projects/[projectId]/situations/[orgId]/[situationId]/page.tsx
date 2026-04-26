@@ -176,6 +176,16 @@ export default async function SituationDetailPage({
     isEntreprise &&
     (situation.status === SituationStatus.DRAFT || situation.status === SituationStatus.MOE_CORRECTION);
 
+  // Periods already used by OTHER situations for this org (for duplicate-month guard in edit form)
+  const usedPeriods: string[] = showDraftEdit
+    ? await prisma.situationTravaux
+        .findMany({
+          where: { projectId, organizationId: orgId, id: { not: situationId } },
+          select: { periodLabel: true },
+        })
+        .then((rows) => rows.map((r) => r.periodLabel))
+    : [];
+
   return (
     <div className="max-w-3xl space-y-6">
       {/* Header */}
@@ -323,6 +333,7 @@ export default async function SituationDetailPage({
             number: f.number,
             quoteAmountCents: Number(f.quoteAmountCents),
           }))}
+          usedPeriods={usedPeriods}
         />
       )}
 

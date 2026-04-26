@@ -57,6 +57,7 @@ type Props = {
   previousCumulativeCents: number;
   ftmBillings: FtmBillingLine[];
   acceptedFtms: AcceptedFtm[];
+  usedPeriods: string[];
 };
 
 export function UpdateDraftForm({
@@ -74,6 +75,7 @@ export function UpdateDraftForm({
   previousCumulativeCents,
   ftmBillings,
   acceptedFtms,
+  usedPeriods,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -97,7 +99,12 @@ export function UpdateDraftForm({
     hasMoeAmount ? "accept" : "propose"
   );
 
-  // Controlled amount state for visual preview
+  // Controlled period state — needed for duplicate-month validation
+  const [periodLabel, setPeriodLabel] = useState(currentPeriodLabel);
+  const periodAlreadyUsed = !isCorrection && usedPeriods.includes(periodLabel);
+
+  // Controlled amount state with monthly/cumulative toggle
+  const [inputMode, setInputMode] = useState<"monthly" | "cumulative">("cumulative");
   const [amountStr, setAmountStr] = useState((currentAmountHtCents / 100).toFixed(2));
   const [proposeAmountStr, setProposeAmountStr] = useState((currentAmountHtCents / 100).toFixed(2));
 
@@ -108,6 +115,39 @@ export function UpdateDraftForm({
     : 0;
   const alreadyAddedFtmIds = new Set(ftmBillings.map((b) => b.ftmRecordId));
   const availableFtms = acceptedFtms.filter((f) => !alreadyAddedFtmIds.has(f.ftmId));
+
+  // Derive effective cumulative for visuals
+  const parsedAmt = Math.round(parseFloat(amountStr.replace(",", ".") || "0") * 100);
+  const normalCumulativeCents = inputMode === "monthly" ? previousCumulativeCents + parsedAmt : parsedAmt;
+  const effectiveCents = hasMoeAmount
+    ? correctionChoice === "accept"
+      ? moeAdjustedAmountHtCents!
+      : Math.round(parseFloat(proposeAmountStr.replace(",", ".") || "0") * 100)
+    : normalCumulativeCents;
+  const activeFtmCents = ftmBillings
+    .filter((b) => b.status !== "MOE_REFUSED" && b.status !== "MOA_REFUSED")
+    .reduce((sum, b) => sum + b.billedAmountCents, 0);
+  const thisPeriodCents = Math.max(0, effectiveCents - previousCumulativeCents) + activeFtmCents;
+  const hasForecast = forecastEntries.length > 0;
+  const showPanel = hasForecast || forecastWaived;
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setSelectedFile(e.target.files?.[0] ?? null);
+  }
+
+  function clearFile() {
+    setSelectedFile(null);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  async function resolveDocument(): Promise<{ url: string | null; name: string | null }> {
+    if (!selectedFile) return { url: null, name: null };
+    const uploadFd = new FormData();
+    uploadFd.append("projectId", projectId);
+    uploadFd.append("file", selectedFile);
+    const result = await uploadSituationDocumentAction(uploadFd);
+    return { url: result.path, name: result.name };
+  }
 
   function handleAddFtm() {
     if (!selectedFtmId || !ftmPercentage) return;
@@ -141,37 +181,6 @@ export function UpdateDraftForm({
     });
   }
 
-  // Derive effective cumulative for visuals
-  const effectiveCents = hasMoeAmount
-    ? correctionChoice === "accept"
-      ? moeAdjustedAmountHtCents!
-      : Math.round(parseFloat(proposeAmountStr.replace(",", ".") || "0") * 100)
-    : Math.round(parseFloat(amountStr.replace(",", ".") || "0") * 100);
-  const activeFtmCents = ftmBillings
-    .filter((b) => b.status !== "MOE_REFUSED" && b.status !== "MOA_REFUSED")
-    .reduce((sum, b) => sum + b.billedAmountCents, 0);
-  const thisPeriodCents = Math.max(0, effectiveCents - previousCumulativeCents) + activeFtmCents;
-  const hasForecast = forecastEntries.length > 0;
-  const showPanel = hasForecast || forecastWaived;
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setSelectedFile(e.target.files?.[0] ?? null);
-  }
-
-  function clearFile() {
-    setSelectedFile(null);
-    if (fileRef.current) fileRef.current.value = "";
-  }
-
-  async function resolveDocument(): Promise<{ url: string | null; name: string | null }> {
-    if (!selectedFile) return { url: null, name: null };
-    const uploadFd = new FormData();
-    uploadFd.append("projectId", projectId);
-    uploadFd.append("file", selectedFile);
-    const result = await uploadSituationDocumentAction(uploadFd);
-    return { url: result.path, name: result.name };
-  }
-
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
@@ -182,7 +191,7 @@ export function UpdateDraftForm({
       ? correctionChoice === "accept"
         ? moeAdjustedAmountHtCents!
         : Math.round(parseFloat(proposeAmountStr.replace(",", ".")) * 100)
-      : Math.round(parseFloat(amountStr.replace(",", ".")) * 100);
+      : normalCumulativeCents;
 
     const correctionComment =
       hasMoeAmount && correctionChoice === "propose"
@@ -207,7 +216,7 @@ export function UpdateDraftForm({
         await updateSituationDraftAction({
           situationId,
           projectId,
-          periodLabel: isCorrection ? currentPeriodLabel : (fd.get("periodLabel") as string),
+          periodLabel: isCorrection ? currentPeriodLabel : periodLabel,
           cumulativeAmountHtCents: amountCents,
           correctionComment,
           ...(url !== null ? { documentUrl: url, documentName: name } : {}),
@@ -237,7 +246,7 @@ export function UpdateDraftForm({
       ? correctionChoice === "accept"
         ? moeAdjustedAmountHtCents!
         : Math.round(parseFloat(proposeAmountStr.replace(",", ".")) * 100)
-      : Math.round(parseFloat(amountStr.replace(",", ".")) * 100);
+      : normalCumulativeCents;
 
     const correctionComment =
       hasMoeAmount && correctionChoice === "propose"
@@ -257,7 +266,7 @@ export function UpdateDraftForm({
         await updateSituationDraftAction({
           situationId,
           projectId,
-          periodLabel: isCorrection ? currentPeriodLabel : (formData.get("periodLabel") as string),
+          periodLabel: isCorrection ? currentPeriodLabel : periodLabel,
           cumulativeAmountHtCents: amountCents,
           correctionComment,
           ...(url !== null ? { documentUrl: url, documentName: name } : {}),
@@ -309,25 +318,61 @@ export function UpdateDraftForm({
                 {currentPeriodLabel}
               </p>
             ) : (
-              <input
-                name="periodLabel"
-                type="month"
-                required
-                defaultValue={currentPeriodLabel}
-                className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-              />
+              <>
+                <input
+                  type="month"
+                  required
+                  value={periodLabel}
+                  onChange={(e) => setPeriodLabel(e.target.value)}
+                  className={`w-full rounded border px-3 py-1.5 text-xs focus:outline-none focus:ring-1 dark:bg-slate-800 dark:text-slate-100 ${
+                    periodAlreadyUsed
+                      ? "border-red-300 bg-red-50 focus:ring-red-300 dark:border-red-700 dark:bg-red-950/20"
+                      : "border-slate-200 bg-white focus:ring-slate-400 dark:border-slate-700"
+                  }`}
+                />
+                {periodAlreadyUsed && (
+                  <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">
+                    Une situation existe déjà pour cette période.
+                  </p>
+                )}
+              </>
             )}
           </div>
 
           {/* Amount — normal field when no MOE adjusted amount */}
           {!hasMoeAmount && (
             <div>
-              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                Montant cumulé HT
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Montant <span className="text-red-500">*</span>
+                </label>
+                <div className="flex overflow-hidden rounded border border-slate-200 bg-white text-[11px] dark:border-slate-700 dark:bg-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cum = Math.round(parseFloat(amountStr.replace(",", ".") || "0") * 100);
+                      setAmountStr((Math.max(0, cum - previousCumulativeCents) / 100).toFixed(2));
+                      setInputMode("monthly");
+                    }}
+                    className={`px-2 py-0.5 transition-colors ${inputMode === "monthly" ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"}`}
+                  >
+                    Mensuel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const monthly = Math.round(parseFloat(amountStr.replace(",", ".") || "0") * 100);
+                      setAmountStr(((previousCumulativeCents + monthly) / 100).toFixed(2));
+                      setInputMode("cumulative");
+                    }}
+                    className={`px-2 py-0.5 transition-colors ${inputMode === "cumulative" ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"}`}
+                  >
+                    Cumulé
+                  </button>
+                </div>
+              </div>
               <div className="relative">
                 <input
-                  name="amount"
                   type="number"
                   required
                   min="0"
@@ -339,10 +384,10 @@ export function UpdateDraftForm({
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
               </div>
               <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                Montant du mois :{" "}
-                <strong className="text-slate-700 dark:text-slate-300">
-                  {(thisPeriodCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
-                </strong>
+                {inputMode === "monthly"
+                  ? <>Cumulé résultant : <strong className="text-slate-700 dark:text-slate-300">{formatEur(normalCumulativeCents)}</strong></>
+                  : <>Montant du mois : <strong className="text-slate-700 dark:text-slate-300">{formatEur(thisPeriodCents)}</strong></>
+                }
               </p>
             </div>
           )}
@@ -423,7 +468,7 @@ export function UpdateDraftForm({
           {hasForecast && (
             <ForecastComplianceBanner
               entries={forecastEntries}
-              periodLabel={currentPeriodLabel}
+              periodLabel={periodLabel}
               thisPeriodCents={thisPeriodCents}
             />
           )}
@@ -493,10 +538,10 @@ export function UpdateDraftForm({
               {ftmBillings.length > 0 && (
                 <div className="divide-y divide-slate-100 rounded border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
                   {ftmBillings.map((b) => {
-                    const isRefused = b.status === "MOE_REFUSED" || b.status === "MOA_REFUSED";
-                    const isCorrection =
+                    const lineRefused = b.status === "MOE_REFUSED" || b.status === "MOA_REFUSED";
+                    const lineCorrection =
                       b.status === "MOE_CORRECTION_NEEDED" || b.status === "MOA_CORRECTION_NEEDED";
-                    const canRemove = b.status === "PENDING" || isRefused || isCorrection;
+                    const canRemove = b.status === "PENDING" || lineRefused || lineCorrection;
                     const statusLabel =
                       b.status === "PENDING" ? "En attente" :
                       b.status === "MOE_APPROVED" ? "Approuvé MOE" :
@@ -508,8 +553,8 @@ export function UpdateDraftForm({
                     const statusClass =
                       b.status === "MOE_APPROVED" ? "bg-teal-100 text-teal-700" :
                       b.status === "MOA_APPROVED" ? "bg-green-100 text-green-700" :
-                      isRefused ? "bg-red-100 text-red-700" :
-                      isCorrection ? "bg-amber-100 text-amber-700" :
+                      lineRefused ? "bg-red-100 text-red-700" :
+                      lineCorrection ? "bg-amber-100 text-amber-700" :
                       "bg-slate-100 text-slate-600";
                     return (
                       <div key={b.id} className="px-3 py-2 text-xs space-y-1">
@@ -520,7 +565,7 @@ export function UpdateDraftForm({
                             </span>
                             <span className="ml-2 text-slate-500">({b.percentage}%)</span>
                           </div>
-                          <span className={`shrink-0 font-medium ${isRefused ? "line-through text-red-500" : "text-slate-700 dark:text-slate-300"}`}>
+                          <span className={`shrink-0 font-medium ${lineRefused ? "line-through text-red-500" : "text-slate-700 dark:text-slate-300"}`}>
                             {formatEur(b.billedAmountCents)}
                           </span>
                           <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${statusClass}`}>
@@ -538,12 +583,12 @@ export function UpdateDraftForm({
                             </button>
                           )}
                         </div>
-                        {isCorrection && b.moeComment && b.status === "MOE_CORRECTION_NEEDED" && (
+                        {lineCorrection && b.moeComment && b.status === "MOE_CORRECTION_NEEDED" && (
                           <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] italic text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
                             Correction MOE : {b.moeComment}
                           </p>
                         )}
-                        {isCorrection && b.status === "MOA_CORRECTION_NEEDED" && b.moaComment && (
+                        {lineCorrection && b.status === "MOA_CORRECTION_NEEDED" && b.moaComment && (
                           <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] italic text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
                             Correction MOA : {b.moaComment}
                           </p>
@@ -633,7 +678,7 @@ export function UpdateDraftForm({
             {!isCorrection && (
               <button
                 type="submit"
-                disabled={isPending}
+                disabled={isPending || periodAlreadyUsed}
                 className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
               >
                 {pendingAction === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -642,7 +687,7 @@ export function UpdateDraftForm({
             )}
             <button
               type="button"
-              disabled={isPending}
+              disabled={isPending || periodAlreadyUsed}
               onClick={(e) => {
                 const form = (e.currentTarget as HTMLButtonElement).closest("form") as HTMLFormElement;
                 handleSubmit(new FormData(form));
@@ -659,7 +704,7 @@ export function UpdateDraftForm({
           <SituationForecastPanel
             entries={forecastEntries}
             forecastWaived={forecastWaived}
-            periodLabel={currentPeriodLabel}
+            periodLabel={periodLabel}
             thisPeriodCents={thisPeriodCents}
           />
         )}

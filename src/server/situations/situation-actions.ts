@@ -163,6 +163,21 @@ export async function updateSituationDraftAction(raw: unknown) {
     throw new Error("La période ne peut pas être modifiée lors d'une correction.");
   }
 
+  // Duplicate period check: reject if another situation for this org already uses the same month
+  if (data.periodLabel !== situation.periodLabel) {
+    const duplicate = await prisma.situationTravaux.findFirst({
+      where: {
+        projectId: data.projectId,
+        organizationId: member.organizationId,
+        periodLabel: data.periodLabel,
+        id: { not: data.situationId },
+      },
+    });
+    if (duplicate) {
+      throw new Error("Une situation existe déjà pour cette période. Chaque mois ne peut être soumis qu'une seule fois.");
+    }
+  }
+
   // When the MOE set an adjusted amount, proposing a different amount requires a comment
   if (
     situation.status === SituationStatus.MOE_CORRECTION &&

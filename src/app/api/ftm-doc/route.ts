@@ -2,21 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/user";
 import { prisma } from "@/lib/prisma";
 import { ProjectRole } from "@prisma/client";
-import { createClient } from "@supabase/supabase-js";
+import { downloadFtmDocument } from "@/lib/storage";
 import { z } from "zod";
-
-const BUCKET = "ftm-documents";
-
-/**
- * Service-role Supabase client for storage proxying.
- * Using the JS SDK avoids the `/authenticated/` REST endpoint which requires
- * a user-level JWT — the service role key is incompatible with that path.
- */
-function getStorageClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key, { auth: { persistSession: false } });
-}
 
 export async function GET(request: NextRequest) {
   const user = await getAuthUser();
@@ -110,32 +97,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error("Missing server credentials");
-    }
-
-    // ── Proxy file download via SDK ───────────────────────────────────────
-    // Uses .download() from the service-role client — avoids the
-    // /authenticated/ REST endpoint which requires a user-level JWT.
-    const { data: blob, error } = await getStorageClient()
-      .storage
-      .from(BUCKET)
-      .download(path);
-
-    if (error || !blob) {
-      throw new Error(
-        `Impossible de télécharger le fichier proxy.${error ? " " + error.message : ""}`
-      );
-    }
-
-    const arrayBuffer = await blob.arrayBuffer();
+    // ── Proxy file download via Scaleway S3 ──────────────────────────────
+    const { body, contentType } = await downloadFtmDocument(path);
     const fileName = path.split("/").pop() ?? "document";
 
-    return new NextResponse(arrayBuffer, {
+    return new NextResponse(new Uint8Array(body), {
       status: 200,
       headers: {
-        "Content-Type": blob.type || "application/octet-stream",
-        "Content-Length": String(arrayBuffer.byteLength),
+        "Content-Type": contentType,
+        "Content-Length": String(body.byteLength),
         "Content-Disposition": `inline; filename="${fileName}"`,
       },
     });

@@ -1,50 +1,12 @@
 import 'dotenv/config';
 import { PrismaClient, ProjectRole, Capability } from "@prisma/client";
-import { createClient } from "@supabase/supabase-js";
+import { hash as hashArgon2 } from "@node-rs/argon2";
 
 const prisma = new PrismaClient();
 
 async function main() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Supabase URL or Service Role Key missing in .env");
-  }
-
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
-  // Helper to ensure a Supabase user exists with "password123" and get its ID
-  async function ensureSupabaseUser(email: string, name: string) {
-    // Try to create the user
-    let { data, error } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password: "password123",
-      email_confirm: true,
-      user_metadata: { name },
-    });
-
-    // If email already exists, fetch the user to get the ID
-    if (error && (error as any).code === 'email_exists') {
-      const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
-      const existingUser = usersData.users.find((u) => u.email === email);
-      if (!existingUser) throw new Error(`Could not find existing user ${email}`);
-      return existingUser.id;
-    } else if (error) {
-      throw error;
-    }
-
-    if (!data.user) throw new Error("User creation failed without error.");
-    return data.user.id;
-  }
-
-  // Create or retrieve actual Supabase UUIDs
-  const moaId = await ensureSupabaseUser("moa@demo.local", "Utilisateur MOA");
-  const moeId = await ensureSupabaseUser("moe@demo.local", "Utilisateur MOE");
-  const ent1Id = await ensureSupabaseUser("ent1@demo.local", "Chef Ent. A");
-  const ent2Id = await ensureSupabaseUser("ent2@demo.local", "Chef Ent. B");
+  const passwordHash = await hashArgon2("password123");
+  const emailVerified = new Date();
 
   const moaOrg = await prisma.organization.upsert({
     where: { slug: "demo-moa" },
@@ -69,23 +31,23 @@ async function main() {
 
   const userMoa = await prisma.user.upsert({
     where: { email: "moa@demo.local" },
-    update: { id: moaId, isAdmin: true },
-    create: { id: moaId, email: "moa@demo.local", name: "Utilisateur MOA", isAdmin: true },
+    update: { passwordHash, emailVerified, isAdmin: true },
+    create: { email: "moa@demo.local", name: "Utilisateur MOA", isAdmin: true, passwordHash, emailVerified },
   });
   const userMoe = await prisma.user.upsert({
     where: { email: "moe@demo.local" },
-    update: { id: moeId },
-    create: { id: moeId, email: "moe@demo.local", name: "Utilisateur MOE" },
+    update: { passwordHash, emailVerified },
+    create: { email: "moe@demo.local", name: "Utilisateur MOE", passwordHash, emailVerified },
   });
   const userE1 = await prisma.user.upsert({
     where: { email: "ent1@demo.local" },
-    update: { id: ent1Id },
-    create: { id: ent1Id, email: "ent1@demo.local", name: "Chef Ent. A" },
+    update: { passwordHash, emailVerified },
+    create: { email: "ent1@demo.local", name: "Chef Ent. A", passwordHash, emailVerified },
   });
   const userE2 = await prisma.user.upsert({
     where: { email: "ent2@demo.local" },
-    update: { id: ent2Id },
-    create: { id: ent2Id, email: "ent2@demo.local", name: "Chef Ent. B" },
+    update: { passwordHash, emailVerified },
+    create: { email: "ent2@demo.local", name: "Chef Ent. B", passwordHash, emailVerified },
   });
 
   for (const [u, o] of [

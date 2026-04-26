@@ -1,31 +1,47 @@
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-/**
- * Service-role client for storage operations.
- * All storage calls are already behind server-side auth + capability checks,
- * so using the service role avoids bucket RLS policy issues.
- */
-function getStorageClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_URL env vars.");
+function getS3Client() {
+  const region = process.env.SCW_REGION;
+  const endpoint = process.env.SCW_S3_ENDPOINT;
+  const accessKeyId = process.env.SCW_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.SCW_SECRET_ACCESS_KEY;
+  if (!region || !endpoint || !accessKeyId || !secretAccessKey) {
+    throw new Error(
+      "Missing Scaleway S3 env vars (SCW_REGION, SCW_S3_ENDPOINT, SCW_ACCESS_KEY_ID, SCW_SECRET_ACCESS_KEY)."
+    );
   }
-  return createSupabaseClient(url, key, { auth: { persistSession: false } });
+  return new S3Client({
+    region,
+    endpoint,
+    credentials: { accessKeyId, secretAccessKey },
+    forcePathStyle: false,
+  });
 }
 
-const BUCKET = "ftm-documents";
+function getBucket() {
+  const bucket = process.env.SCW_BUCKET_NAME;
+  if (!bucket) throw new Error("Missing SCW_BUCKET_NAME env var.");
+  return bucket;
+}
 
-/**
- * Sanitize a filename for Supabase Storage keys:
- * strip diacritics, replace spaces/special chars with underscores.
- */
 function sanitizeKey(name: string): string {
   return name
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // strip accents
-    .replace(/[^a-zA-Z0-9._-]/g, "_") // replace unsafe chars
-    .replace(/_+/g, "_"); // collapse consecutive underscores
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/_+/g, "_");
+}
+
+async function toBuffer(content: Buffer | ArrayBuffer | Blob): Promise<Buffer> {
+  if (Buffer.isBuffer(content)) return content;
+  if (content instanceof ArrayBuffer) return Buffer.from(content);
+  return Buffer.from(await content.arrayBuffer());
 }
 
 export async function uploadFtmDocument(
@@ -36,39 +52,76 @@ export async function uploadFtmDocument(
 ) {
   const safeName = sanitizeKey(fileName);
   const path = `${ftmId}/${Date.now()}-${safeName}`;
-  const supabase = getStorageClient();
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, fileContent, {
-    contentType,
-    upsert: false,
-  });
+  const Body = await toBuffer(fileContent);
 
-  if (error) {
-    console.error("Supabase storage upload error:", error);
-    throw new Error("Impossible d'uploader le document FTM: " + error.message);
+  try {
+    await getS3Client().send(
+      new PutObjectCommand({
+        Bucket: getBucket(),
+        Key: path,
+        Body,
+        ContentType: contentType,
+      })
+    );
+  } catch (err) {
+    console.error("Scaleway S3 upload error:", err);
+    throw new Error(
+      "Impossible d'uploader le document FTM: " +
+        (err instanceof Error ? err.message : String(err))
+    );
   }
 
-  return { path: data.path };
+  return { path };
 }
 
 export async function getFtmDocumentUrl(path: string) {
-  const supabase = getStorageClient();
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60);
-
-  if (error) {
-    console.error("Supabase Storage signed URL error:", error);
-    throw new Error("Unable to create signed URL: " + error.message);
+  try {
+    return await getSignedUrl(
+      getS3Client(),
+      new GetObjectCommand({ Bucket: getBucket(), Key: path }),
+      { expiresIn: 60 * 60 }
+    );
+  } catch (err) {
+    console.error("Scaleway S3 signed URL error:", err);
+    throw new Error(
+      "Unable to create signed URL: " +
+        (err instanceof Error ? err.message : String(err))
+    );
   }
+}
 
-  return data.signedUrl;
+export async function downloadFtmDocument(
+  path: string
+): Promise<{ body: Buffer; contentType: string }> {
+  try {
+    const res = await getS3Client().send(
+      new GetObjectCommand({ Bucket: getBucket(), Key: path })
+    );
+    if (!res.Body) throw new Error("Empty response body");
+    const bytes = await res.Body.transformToByteArray();
+    return {
+      body: Buffer.from(bytes),
+      contentType: res.ContentType ?? "application/octet-stream",
+    };
+  } catch (err) {
+    console.error("Scaleway S3 download error:", err);
+    throw new Error(
+      "Impossible de télécharger le fichier: " +
+        (err instanceof Error ? err.message : String(err))
+    );
+  }
 }
 
 export async function deleteFtmDocument(path: string) {
-  const supabase = getStorageClient();
-  const { error } = await supabase.storage.from(BUCKET).remove([path]);
-
-  if (error) {
-    console.error("Supabase Storage delete error:", error);
-    throw new Error("Impossible de supprimer le document: " + error.message);
+  try {
+    await getS3Client().send(
+      new DeleteObjectCommand({ Bucket: getBucket(), Key: path })
+    );
+  } catch (err) {
+    console.error("Scaleway S3 delete error:", err);
+    throw new Error(
+      "Impossible de supprimer le document: " +
+        (err instanceof Error ? err.message : String(err))
+    );
   }
 }
-

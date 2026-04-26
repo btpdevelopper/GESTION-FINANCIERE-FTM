@@ -1,12 +1,15 @@
 "use server";
 
+import * as React from "react";
 import { revalidatePath } from "next/cache";
 import { ProjectRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth/user";
-import { createClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { DEFAULT_GROUP_NAMES, DEFAULT_ROLE_CAPABILITIES } from "@/lib/permissions/defaults";
+import { createResetToken } from "@/lib/auth/tokens";
+import { sendEmail } from "@/lib/email";
+import { MemberInviteEmail } from "@/emails/member-invite";
 
 // Assumes role enum comes from prisma
 type Role = "MOA" | "MOE" | "ENTREPRISE";
@@ -44,16 +47,6 @@ export async function createProjectExecutionAction(input: {
 
   const dbUser = await prisma.user.findUnique({ where: { id: caller.id } });
   if (!dbUser?.isAdmin) throw new Error("Seuls les administrateurs peuvent créer un projet.");
-
-  // Init Supabase Admin purely for user creation
-  const defaultSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!defaultSupabaseUrl || !serviceRoleKey) {
-    throw new Error("Configuration Supabase Admin manquante sur le serveur.");
-  }
-  const supabaseAdmin = createClient(defaultSupabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
 
   // Verify that the caller is in the users list so they don't get locked out
   if (caller.email && !input.users.some(u => u.email.toLowerCase() === caller.email?.toLowerCase())) {
@@ -177,30 +170,21 @@ export async function createProjectExecutionAction(input: {
       }
     }
 
-    // 4. Process Users
+    // 4. Process Users — track which were freshly created so we can email them
+    // an activation link AFTER the transaction commits.
+    const newlyCreated: { id: string; email: string; name: string | null }[] = [];
+
     for (const u of input.users) {
       const orgId = orgMap.get(u.organizationName);
       if (!orgId) continue;
 
       let dbUser = await tx.user.findUnique({ where: { email: u.email } });
-      
+
       if (!dbUser) {
-        // Invite user securely via Supabase Auth (sends an invite email)
-        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
-          u.email,
-          { data: { name: u.name } }
-        );
-        if (authError || !authData.user) {
-          throw new Error(`Erreur création auth Supabase pour ${u.email}: ${authError?.message}`);
-        }
-        
         dbUser = await tx.user.create({
-          data: {
-            id: authData.user.id,
-            email: u.email,
-            name: u.name,
-          },
+          data: { email: u.email, name: u.name },
         });
+        newlyCreated.push({ id: dbUser.id, email: dbUser.email, name: dbUser.name });
       }
 
       const groupId =
@@ -217,9 +201,31 @@ export async function createProjectExecutionAction(input: {
       });
     }
 
-    return p;
+    return { p, newlyCreated };
   });
 
+  // Send activation emails outside the transaction. A failure here must not
+  // roll back project creation — log and continue.
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
+  for (const u of project.newlyCreated) {
+    try {
+      const rawToken = await createResetToken(u.id, 60);
+      const inviteLink = `${appUrl}/auth/set-password?token=${encodeURIComponent(rawToken)}&first=1`;
+      await sendEmail({
+        to: u.email,
+        subject: `Invitation à rejoindre ${project.p.name} — Aurem Gestion Financière`,
+        react: React.createElement(MemberInviteEmail, {
+          inviteLink,
+          projectName: project.p.name,
+          recipientName: u.name ?? undefined,
+        }),
+      });
+    } catch (err) {
+      console.error(`[createProjectExecutionAction] invite email failed for ${u.email}:`, err);
+    }
+  }
+
   revalidatePath("/projects");
-  redirect(`/projects/${project.id}`);
+  redirect(`/projects/${project.p.id}`);
 }

@@ -8,9 +8,9 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectMember } from "@/server/membership";
 import { can, mergeCapabilities } from "@/lib/permissions/resolve";
 import { DEFAULT_GROUP_NAMES } from "@/lib/permissions/defaults";
-import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
 import { MemberInviteEmail } from "@/emails/member-invite";
+import { createResetToken } from "@/lib/auth/tokens";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -186,44 +186,23 @@ export async function inviteProjectMemberAction(input: {
     org = await prisma.organization.create({ data: { name: orgName } });
   }
 
-  // Find or invite user via Supabase Admin
+  // Find or invite user. New users get a one-time activation link valid for
+  // 60 minutes that lands on /auth/set-password.
   let dbUser = await prisma.user.findUnique({ where: { email } });
   let inviteEmailSent = false;
 
   if (!dbUser) {
-    const supabaseAdmin = getSupabaseAdmin();
     const appUrl =
       process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ??
       "http://localhost:3000";
 
-    // Generate the invite link without letting Supabase send an email.
-    // We deliver it ourselves via Resend so the template is consistent with
-    // the rest of the app and routes through our own domain.
-    const { data: linkData, error: linkError } =
-      await supabaseAdmin.auth.admin.generateLink({
-        type: "invite",
-        email,
-        options: {
-          data: { name: name || email },
-          redirectTo: `${appUrl}/auth/confirm`,
-        },
-      });
-
-    if (linkError || !linkData?.user) {
-      throw new Error(
-        `Erreur lors de la génération du lien d'invitation : ${linkError?.message ?? "inconnue"}`,
-      );
-    }
-
     dbUser = await prisma.user.create({
-      data: {
-        id: linkData.user.id,
-        email,
-        name: name || null,
-      },
+      data: { email, name: name || null },
     });
 
-    // Fetch the project name for the email subject line
+    const rawToken = await createResetToken(dbUser.id, 60);
+    const inviteLink = `${appUrl}/auth/set-password?token=${encodeURIComponent(rawToken)}&first=1`;
+
     const project = await prisma.project.findUnique({
       where: { id: input.projectId },
       select: { name: true },
@@ -233,7 +212,7 @@ export async function inviteProjectMemberAction(input: {
       to: email,
       subject: `Invitation à rejoindre ${project?.name ?? "un projet"} — Aurem Gestion Financière`,
       react: React.createElement(MemberInviteEmail, {
-        inviteLink: linkData.properties.action_link,
+        inviteLink,
         projectName: project?.name ?? "Aurem Gestion Financière",
         recipientName: name || undefined,
       }),

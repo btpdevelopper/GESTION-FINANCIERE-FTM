@@ -1,9 +1,10 @@
 "use server";
 
 import * as React from "react";
-import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
 import { PasswordResetEmail } from "@/emails/password-reset";
+import { createResetToken } from "@/lib/auth/tokens";
 
 export async function sendPasswordResetAction(input: {
   email: string;
@@ -19,21 +20,12 @@ export async function sendPasswordResetAction(input: {
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
 
   try {
-    const supabaseAdmin = getSupabaseAdmin();
+    const user = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+    // Silent success for unknown emails — prevents enumeration.
+    if (!user) return { ok: true };
 
-    const { data, error: genError } = await supabaseAdmin.auth.admin.generateLink({
-      type: "recovery",
-      email,
-      options: {
-        redirectTo: `${appUrl}/auth/confirm`,
-      },
-    });
-
-    if (genError || !data?.properties?.action_link) {
-      // Don't leak whether the email exists — return success regardless
-      console.error("[sendPasswordResetAction] generateLink error:", genError?.message);
-      return { ok: true }; // silent fail to prevent email enumeration
-    }
+    const rawToken = await createResetToken(user.id, 60);
+    const resetLink = `${appUrl}/auth/set-password?token=${encodeURIComponent(rawToken)}&first=${input.isFirstConnection ? 1 : 0}`;
 
     await sendEmail({
       to: email,
@@ -41,7 +33,7 @@ export async function sendPasswordResetAction(input: {
         ? "Définissez votre mot de passe — Aurem Gestion Financière"
         : "Réinitialisez votre mot de passe — Aurem Gestion Financière",
       react: React.createElement(PasswordResetEmail, {
-        resetLink: data.properties.action_link,
+        resetLink,
         isFirstConnection: input.isFirstConnection ?? false,
       }),
     });
@@ -49,6 +41,6 @@ export async function sendPasswordResetAction(input: {
     return { ok: true };
   } catch (err) {
     console.error("[sendPasswordResetAction] Unexpected error:", err);
-    return { ok: true }; // silent fail — don't expose server errors to the client
+    return { ok: true }; // silent fail
   }
 }

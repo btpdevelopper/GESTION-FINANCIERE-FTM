@@ -1,15 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { useRouter, useSearchParams } from "next/navigation";
+import { setPasswordAction } from "@/server/auth/set-password-action";
 import { KeyRound, CheckCircle2, Eye, EyeOff } from "lucide-react";
 
 const INPUT_CLS =
   "w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none transition-all focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white dark:focus:border-indigo-400 dark:focus:bg-slate-900 dark:focus:ring-indigo-400/10";
 
-export default function UpdatePasswordPage() {
+export default function SetPasswordPage() {
   const router = useRouter();
+  const params = useSearchParams();
+  const token = params.get("token") ?? "";
+  const isFirst = params.get("first") === "1";
+
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -17,12 +21,28 @@ export default function UpdatePasswordPage() {
   const [pending, setPending] = useState(false);
   const [done, setDone] = useState(false);
 
+  if (!token) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-slate-950">
+        <div className="w-full max-w-md space-y-4 rounded-2xl border border-red-100 bg-white p-8 text-center shadow-xl dark:border-red-500/20 dark:bg-slate-900">
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
+            Lien invalide
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Le lien que vous avez utilisé est incomplet. Demandez un nouveau lien depuis la
+            page de connexion.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    if (password.length < 8) {
-      setError("Le mot de passe doit contenir au moins 8 caractères.");
+    if (password.length < 10) {
+      setError("Le mot de passe doit contenir au moins 10 caractères.");
       return;
     }
     if (password !== confirm) {
@@ -31,21 +51,16 @@ export default function UpdatePasswordPage() {
     }
 
     setPending(true);
-    const supabase = createClient();
-    const { error: updateError } = await supabase.auth.updateUser({ password });
+    const res = await setPasswordAction({ token, password });
     setPending(false);
 
-    if (updateError) {
-      setError(
-        updateError.message.includes("session")
-          ? "Lien expiré ou invalide. Veuillez demander un nouveau lien depuis la page de connexion."
-          : "Erreur lors de la mise à jour du mot de passe.",
-      );
+    if (!res.ok) {
+      setError(res.error);
       return;
     }
 
     setDone(true);
-    setTimeout(() => router.replace("/projects"), 2500);
+    setTimeout(() => router.replace("/login"), 2000);
   }
 
   return (
@@ -57,7 +72,7 @@ export default function UpdatePasswordPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-              Définir mon mot de passe
+              {isFirst ? "Définir votre mot de passe" : "Réinitialiser votre mot de passe"}
             </h1>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               Choisissez un mot de passe sécurisé pour accéder à votre compte.
@@ -69,10 +84,10 @@ export default function UpdatePasswordPage() {
           <div className="flex flex-col items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-6 text-center dark:border-emerald-900/40 dark:bg-emerald-950/30">
             <CheckCircle2 className="h-8 w-8 text-emerald-500" />
             <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
-              Mot de passe mis à jour avec succès !
+              Mot de passe enregistré.
             </p>
             <p className="text-xs text-emerald-700 dark:text-emerald-400">
-              Redirection vers vos projets…
+              Redirection vers la connexion…
             </p>
           </div>
         ) : (
@@ -88,7 +103,7 @@ export default function UpdatePasswordPage() {
                   autoFocus
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="8 caractères minimum"
+                  placeholder="10 caractères minimum"
                   className={`${INPUT_CLS} pr-10`}
                 />
                 <button
@@ -120,7 +135,6 @@ export default function UpdatePasswordPage() {
               />
             </div>
 
-            {/* Password strength hint */}
             {password.length > 0 && (
               <div className="flex gap-1.5">
                 {[...Array(4)].map((_, i) => (
@@ -128,7 +142,7 @@ export default function UpdatePasswordPage() {
                     key={i}
                     className={`h-1 flex-1 rounded-full transition-colors ${
                       i < Math.min(Math.floor(password.length / 3), 4)
-                        ? password.length < 8
+                        ? password.length < 10
                           ? "bg-amber-400"
                           : "bg-emerald-500"
                         : "bg-slate-200 dark:bg-slate-700"
@@ -152,7 +166,6 @@ export default function UpdatePasswordPage() {
               <span className="relative z-10">
                 {pending ? "Enregistrement…" : "Enregistrer le mot de passe"}
               </span>
-              <div className="absolute inset-0 -translate-x-[150%] bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-[150%]" />
             </button>
           </form>
         )}

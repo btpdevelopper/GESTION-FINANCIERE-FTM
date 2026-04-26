@@ -1,6 +1,6 @@
 "use client";
 
-import { createClient } from "@/lib/supabase/client";
+import { signInAction } from "@/server/auth/sign-in-action";
 import { sendPasswordResetAction } from "@/server/auth/reset-password-action";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -26,14 +26,12 @@ export function LoginForm() {
     e.preventDefault();
     setError(null);
     setPending(true);
-    const supabase = createClient();
-    const { error: signError } = await supabase.auth.signInWithPassword({ email, password });
+    const result = await signInAction({ email, password, callbackUrl });
+    // signInAction redirects on success; this branch is only reached on error.
     setPending(false);
-    if (signError) {
-      setError("Email ou mot de passe incorrect.");
-      return;
+    if (!result.ok) {
+      setError(result.error);
     }
-    window.location.href = callbackUrl;
   }
 
   async function onReset(e: React.FormEvent) {

@@ -470,6 +470,8 @@ model CompanyContractSettings {
 
   forecastWaived Boolean @default(false)
 
+  revisionPrixActive Boolean @default(false)
+
   cautionBancaireActive         Boolean  @default(false)
   cautionBancaireInsurer        String?
   cautionBancaireContractNumber String?
@@ -495,7 +497,8 @@ model SituationTravaux {
   createdAt      DateTime        @default(now())
 
   // Company submission
-  cumulativeAmountHtCents BigInt
+  cumulativeAmountHtCents          BigInt
+  cumulativeRevisionAmountHtCents  BigInt   @default(0)
   documentUrl             String?
   documentName            String?
   submittedById           String?   @db.Uuid
@@ -506,7 +509,8 @@ model SituationTravaux {
   moeReviewedById          String?   @db.Uuid
   moeReviewedAt            DateTime?
   moeComment               String?   @db.Text
-  moeAdjustedAmountHtCents BigInt?
+  moeAdjustedAmountHtCents         BigInt?
+  moeAdjustedRevisionAmountHtCents BigInt?
   penaltyType              PenaltyType?
   penaltyDelayDays         Int?
   penaltyAmountCents       BigInt?
@@ -524,6 +528,7 @@ model SituationTravaux {
   acceptedCumulativeHtCents        BigInt?
   previousCumulativeHtCents        BigInt?
   periodNetBeforeDeductionsHtCents BigInt?
+  periodRevisionHtCents            BigInt?
   retenueGarantieAmountCents       BigInt?
   avanceTravauxRemboursementCents  BigInt?
   ftmBilledAmountCents             BigInt?

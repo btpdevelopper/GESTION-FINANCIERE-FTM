@@ -176,6 +176,7 @@ export type RecapSituation = {
   numero: number;
   periodLabel: string;
   periodNetBeforeDeductionsHtCents: number;
+  periodRevisionHtCents: number;
   retenueGarantieAmountCents: number;
   avanceTravauxRemboursementCents: number;
   penaltyAmountCents: number;
@@ -225,6 +226,7 @@ export async function getDgdFinancialRecapData(
         ftmBilledAmountCents: true,
         netAmountHtCents: true,
         acceptedCumulativeHtCents: true,
+        periodRevisionHtCents: true,
         ftmBillings: {
           where: { status: "MOA_APPROVED" },
           select: {
@@ -287,6 +289,7 @@ export async function getDgdFinancialRecapData(
     numero: s.numero,
     periodLabel: s.periodLabel,
     periodNetBeforeDeductionsHtCents: Number(s.periodNetBeforeDeductionsHtCents ?? 0),
+    periodRevisionHtCents: Number(s.periodRevisionHtCents ?? 0),
     retenueGarantieAmountCents: Number(s.retenueGarantieAmountCents ?? 0),
     avanceTravauxRemboursementCents: Number(s.avanceTravauxRemboursementCents ?? 0),
     penaltyAmountCents: Number(s.penaltyAmountCents ?? 0),

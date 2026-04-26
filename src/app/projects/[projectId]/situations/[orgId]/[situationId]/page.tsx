@@ -108,7 +108,12 @@ export default async function SituationDetailPage({
         id: { not: situationId },
       },
       orderBy: { numero: "desc" },
-      select: { acceptedCumulativeHtCents: true, cumulativeAmountHtCents: true },
+      select: {
+        acceptedCumulativeHtCents: true,
+        cumulativeAmountHtCents: true,
+        cumulativeRevisionAmountHtCents: true,
+        moeAdjustedRevisionAmountHtCents: true,
+      },
     }),
   ]);
 
@@ -131,13 +136,17 @@ export default async function SituationDetailPage({
   const previousCumulativeCents = prevApprovedSituation
     ? Number(
         prevApprovedSituation.acceptedCumulativeHtCents ??
-          prevApprovedSituation.cumulativeAmountHtCents
+          (prevApprovedSituation.cumulativeAmountHtCents + prevApprovedSituation.cumulativeRevisionAmountHtCents)
       )
     : 0;
+  const previousRevisionCumulativeCents = prevApprovedSituation
+    ? Number(prevApprovedSituation.moeAdjustedRevisionAmountHtCents ?? prevApprovedSituation.cumulativeRevisionAmountHtCents)
+    : 0;
+  const revisionPrixActive = contractSettings?.revisionPrixActive ?? false;
   const acceptedCumulativeCents =
     situation.moeAdjustedAmountHtCents != null
       ? Number(situation.moeAdjustedAmountHtCents)
-      : Number(situation.cumulativeAmountHtCents);
+      : Number(situation.cumulativeAmountHtCents + situation.cumulativeRevisionAmountHtCents);
 
   // Resolve signed URL for the attached document (1-hour expiry)
   let documentSignedUrl: string | null = null;
@@ -305,6 +314,7 @@ export default async function SituationDetailPage({
           orgId={orgId}
           currentPeriodLabel={situation.periodLabel}
           currentAmountHtCents={Number(situation.cumulativeAmountHtCents)}
+          currentRevisionAmountHtCents={Number(situation.cumulativeRevisionAmountHtCents)}
           currentDocumentName={situation.documentName}
           status={situation.status}
           moeAdjustedAmountHtCents={
@@ -312,10 +322,17 @@ export default async function SituationDetailPage({
               ? Number(situation.moeAdjustedAmountHtCents)
               : null
           }
+          moeAdjustedRevisionAmountHtCents={
+            situation.moeAdjustedRevisionAmountHtCents != null
+              ? Number(situation.moeAdjustedRevisionAmountHtCents)
+              : null
+          }
+          revisionPrixActive={revisionPrixActive}
           forecastEntries={forecastEntries}
           forecastWaived={forecastWaived}
           marcheTotalCents={effectiveMarcheCents}
           previousCumulativeCents={previousCumulativeCents}
+          previousRevisionCumulativeCents={previousRevisionCumulativeCents}
           ftmBillings={ftmBillings.map((b) => ({
             id: b.id,
             ftmRecordId: b.ftmRecordId,
@@ -344,13 +361,17 @@ export default async function SituationDetailPage({
           <div>
             <dt className="text-slate-500">Montant cumulé HT (déclaré)</dt>
             <dd className="font-medium text-slate-900 dark:text-slate-100">
-              {formatEur(situation.cumulativeAmountHtCents + declaredFtmCents)}
+              {formatEur(situation.cumulativeAmountHtCents + situation.cumulativeRevisionAmountHtCents + declaredFtmCents)}
             </dd>
-            {declaredFtmCents > BigInt(0) && (
-              <p className="text-xs text-slate-500 mt-0.5">
-                dont travaux {formatEur(situation.cumulativeAmountHtCents)} + FTMs {formatEur(declaredFtmCents)}
-              </p>
-            )}
+            <div className="text-xs text-slate-500 mt-0.5 space-y-0.5">
+              <p>Base : {formatEur(situation.cumulativeAmountHtCents)}</p>
+              {situation.cumulativeRevisionAmountHtCents > BigInt(0) && (
+                <p>Révision : {formatEur(situation.cumulativeRevisionAmountHtCents)}</p>
+              )}
+              {declaredFtmCents > BigInt(0) && (
+                <p>FTMs : {formatEur(declaredFtmCents)}</p>
+              )}
+            </div>
           </div>
           {situation.moeAdjustedAmountHtCents && (
             <div>
@@ -476,6 +497,11 @@ export default async function SituationDetailPage({
             <div>
               <dt className="text-slate-500">Montant de la période brut</dt>
               <dd className="font-medium">{formatEur(situation.periodNetBeforeDeductionsHtCents)}</dd>
+              {situation.periodRevisionHtCents != null && situation.periodRevisionHtCents > BigInt(0) && (
+                <p className="text-xs text-slate-500 mt-0.5">
+                  dont révision : {formatEur(situation.periodRevisionHtCents)}
+                </p>
+              )}
             </div>
             {situation.retenueGarantieAmountCents !== null && situation.retenueGarantieAmountCents > BigInt(0) && (
               <div>
@@ -533,7 +559,9 @@ export default async function SituationDetailPage({
           orgId={orgId}
           penaltyType={contractSettings?.penaltyType ?? "NONE"}
           penaltyDailyRateCents={contractSettings?.penaltyDailyRateCents ? Number(contractSettings.penaltyDailyRateCents) : null}
-          currentCumulativeHtCents={Number(situation.cumulativeAmountHtCents)}
+          currentCumulativeHtCents={Number(situation.cumulativeAmountHtCents + situation.cumulativeRevisionAmountHtCents)}
+          currentRevisionCumulativeHtCents={Number(situation.cumulativeRevisionAmountHtCents)}
+          revisionPrixActive={revisionPrixActive}
           periodLabel={situation.periodLabel}
           forecastEntries={forecastEntries}
           forecastWaived={forecastWaived}

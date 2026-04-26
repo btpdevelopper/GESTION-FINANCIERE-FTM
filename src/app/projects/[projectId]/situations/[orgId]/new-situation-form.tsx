@@ -16,17 +16,25 @@ const ACCEPTED = ".pdf,.xlsx,.xls,.png,.jpg,.jpeg";
 type Props = {
   projectId: string;
   forecastWaived: boolean;
+  revisionPrixActive: boolean;
   forecastEntries: ForecastEntry[];
   previousCumulativeCents: number;
+  previousRevisionCumulativeCents: number;
   marcheTotalCents: number;
   usedPeriods: string[];
 };
 
+function parseCents(raw: string): number {
+  return Math.round(parseFloat(raw.replace(",", ".") || "0") * 100);
+}
+
 export function NewSituationForm({
   projectId,
   forecastWaived,
+  revisionPrixActive,
   forecastEntries,
   previousCumulativeCents,
+  previousRevisionCumulativeCents,
   marcheTotalCents,
   usedPeriods,
 }: Props) {
@@ -36,18 +44,21 @@ export function NewSituationForm({
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState("");
-  const [inputMode, setInputMode] = useState<"monthly" | "cumulative">("monthly");
-  const [rawAmount, setRawAmount] = useState("");
+  const [rawBase, setRawBase] = useState("");
+  const [rawRevision, setRawRevision] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const hasForecast = forecastEntries.length > 0;
   const showPanel = hasForecast || forecastWaived;
   const periodAlreadyUsed = selectedPeriod !== "" && usedPeriods.includes(selectedPeriod);
 
-  const parsedCents = Math.round(parseFloat(rawAmount.replace(",", ".") || "0") * 100);
-  const thisPeriodCents = inputMode === "monthly" ? Math.max(0, parsedCents) : Math.max(0, parsedCents - previousCumulativeCents);
-  const cumulativeCents = inputMode === "monthly" ? previousCumulativeCents + parsedCents : parsedCents;
-  const showVisuals = rawAmount !== "" && parsedCents > 0;
+  const baseCents = parseCents(rawBase);
+  const revisionCents = revisionPrixActive ? parseCents(rawRevision) : 0;
+  const thisPeriodCents = Math.max(0, baseCents + revisionCents);
+  const cumulativeBaseCents = previousCumulativeCents - previousRevisionCumulativeCents + baseCents;
+  const cumulativeRevisionCents = previousRevisionCumulativeCents + revisionCents;
+  const totalCumulativeCents = cumulativeBaseCents + cumulativeRevisionCents;
+  const showVisuals = rawBase !== "" && baseCents > 0;
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     setSelectedFile(e.target.files?.[0] ?? null);
@@ -63,7 +74,8 @@ export function NewSituationForm({
     setError(null);
     clearFile();
     setSelectedPeriod("");
-    setRawAmount("");
+    setRawBase("");
+    setRawRevision("");
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -84,7 +96,8 @@ export function NewSituationForm({
         await createSituationAction({
           projectId,
           periodLabel: selectedPeriod,
-          cumulativeAmountHtCents: cumulativeCents,
+          cumulativeAmountHtCents: cumulativeBaseCents,
+          cumulativeRevisionAmountHtCents: cumulativeRevisionCents,
           documentUrl,
           documentName,
         });
@@ -152,28 +165,12 @@ export function NewSituationForm({
             )}
           </div>
 
+          {/* Montant base */}
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                Montant <span className="text-red-500">*</span>
-              </label>
-              <div className="flex overflow-hidden rounded border border-slate-200 bg-white text-[11px] dark:border-slate-700 dark:bg-slate-800">
-                <button
-                  type="button"
-                  onClick={() => { setInputMode("monthly"); setRawAmount(""); }}
-                  className={`px-2 py-0.5 transition-colors ${inputMode === "monthly" ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"}`}
-                >
-                  Mensuel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setInputMode("cumulative"); setRawAmount(""); }}
-                  className={`px-2 py-0.5 transition-colors ${inputMode === "cumulative" ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"}`}
-                >
-                  Cumulé
-                </button>
-              </div>
-            </div>
+            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+              Montant HT (Base) <span className="text-red-500">*</span>
+              <span className="ml-1 font-normal text-slate-400">— travaux du mois hors révision</span>
+            </label>
             <div className="relative">
               <input
                 type="number"
@@ -181,21 +178,54 @@ export function NewSituationForm({
                 min="0"
                 step="0.01"
                 placeholder="0.00"
-                value={rawAmount}
-                onChange={(e) => setRawAmount(e.target.value)}
+                value={rawBase}
+                onChange={(e) => setRawBase(e.target.value)}
                 className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
             </div>
-            {showVisuals && (
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                {inputMode === "monthly"
-                  ? <>Cumulé résultant : <strong className="text-slate-700 dark:text-slate-300">{(cumulativeCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></>
-                  : <>Montant du mois : <strong className="text-slate-700 dark:text-slate-300">{(thisPeriodCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></>
-                }
-              </p>
-            )}
           </div>
+
+          {/* Révision de prix (conditionnelle) */}
+          {revisionPrixActive && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                Révision de Prix HT
+                <span className="ml-1 font-normal text-slate-400">— montant de révision calculé ce mois-ci</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={rawRevision}
+                  onChange={(e) => setRawRevision(e.target.value)}
+                  className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
+              </div>
+            </div>
+          )}
+
+          {/* Total à valider */}
+          {showVisuals && (
+            <div className="rounded border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50">
+              {revisionPrixActive && revisionCents > 0 ? (
+                <div className="flex flex-col gap-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  <span>Base : <strong className="text-slate-700 dark:text-slate-300">{(baseCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></span>
+                  <span>Révision : <strong className="text-slate-700 dark:text-slate-300">{(revisionCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></span>
+                  <span className="border-t border-slate-100 pt-0.5 dark:border-slate-700">
+                    Total à valider : <strong className="text-slate-900 dark:text-slate-100">{(thisPeriodCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong>
+                  </span>
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Total à valider : <strong className="text-slate-900 dark:text-slate-100">{(thisPeriodCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong>
+                </p>
+              )}
+            </div>
+          )}
 
           {hasForecast && selectedPeriod && showVisuals && (
             <ForecastComplianceBanner

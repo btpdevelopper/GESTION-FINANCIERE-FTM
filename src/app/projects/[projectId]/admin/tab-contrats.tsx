@@ -17,6 +17,7 @@ type ContractSettings = {
   avanceTravauxRefundInstallments: number | null;
   penaltyType: "NONE" | "FREE_AMOUNT" | "DAILY_RATE";
   penaltyDailyRateCents: number | null;
+  revisionPrixActive: boolean;
 };
 
 type OrgWithSettings = {
@@ -131,6 +132,7 @@ function ContractForm({
       ? (s.penaltyDailyRateCents / 100).toFixed(2)
       : "",
   );
+  const [revisionPrixActive, setRevisionPrixActive] = useState(s?.revisionPrixActive ?? false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -165,6 +167,7 @@ function ContractForm({
             avanceAmountCents && refundInstallments ? parseInt(refundInstallments, 10) : null,
           penaltyType,
           penaltyDailyRateCents: penaltyType === "DAILY_RATE" ? dailyRateCents : null,
+          revisionPrixActive,
         });
         setSuccess(true);
       } catch (err: unknown) {
@@ -287,6 +290,27 @@ function ContractForm({
                   <span className="text-sm text-slate-500">versements égaux</span>
                 </div>
               </div>
+            )}
+          </section>
+
+          {/* Révision de prix */}
+          <section className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Révision de prix
+            </h4>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={revisionPrixActive}
+                onChange={(e) => setRevisionPrixActive(e.target.checked)}
+                className="rounded border-slate-300"
+              />
+              Ce contrat est soumis à révision de prix (clause d&apos;indexation)
+            </label>
+            {revisionPrixActive && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                L&apos;entreprise pourra saisir un montant de révision distinct dans chaque situation de travaux.
+              </p>
             )}
           </section>
 

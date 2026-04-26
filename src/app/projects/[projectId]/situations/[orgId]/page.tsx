@@ -57,7 +57,7 @@ export default async function OrgSituationsPage({
     can(pm.id, Capability.SUBMIT_SITUATION),
     prisma.companyContractSettings.findUnique({
       where: { projectId_organizationId: { projectId, organizationId: orgId } },
-      select: { forecastWaived: true },
+      select: { forecastWaived: true, revisionPrixActive: true },
     }),
     prisma.forecast.findFirst({
       where: { projectId, organizationId: orgId, status: ForecastStatus.MOA_APPROVED },
@@ -83,7 +83,10 @@ export default async function OrgSituationsPage({
   // Last MOA_APPROVED cumulative — used to compute this-period delta in the form
   const lastApproved = [...situations].filter((s) => s.status === SituationStatus.MOA_APPROVED).pop();
   const previousCumulativeCents = lastApproved
-    ? Number(lastApproved.acceptedCumulativeHtCents ?? lastApproved.cumulativeAmountHtCents)
+    ? Number(lastApproved.acceptedCumulativeHtCents ?? (lastApproved.cumulativeAmountHtCents + lastApproved.cumulativeRevisionAmountHtCents))
+    : 0;
+  const previousRevisionCumulativeCents = lastApproved
+    ? Number(lastApproved.moeAdjustedRevisionAmountHtCents ?? lastApproved.cumulativeRevisionAmountHtCents)
     : 0;
 
   const hasOpenSituation = situations.some(
@@ -153,6 +156,7 @@ export default async function OrgSituationsPage({
         <NewSituationForm
           projectId={projectId}
           forecastWaived={contractSettings?.forecastWaived ?? false}
+          revisionPrixActive={contractSettings?.revisionPrixActive ?? false}
           forecastEntries={
             approvedForecast?.entries.map((e) => ({
               periodLabel: e.periodLabel,
@@ -160,6 +164,7 @@ export default async function OrgSituationsPage({
             })) ?? []
           }
           previousCumulativeCents={previousCumulativeCents}
+          previousRevisionCumulativeCents={previousRevisionCumulativeCents}
           marcheTotalCents={marcheTotalCents}
           usedPeriods={situations.map((s) => s.periodLabel)}
         />
@@ -184,7 +189,10 @@ export default async function OrgSituationsPage({
                     Situation n°{s.numero} — {formatPeriod(s.periodLabel)}
                   </p>
                   <p className="text-xs text-slate-500">
-                    Montant cumulé : {formatEur(s.cumulativeAmountHtCents)}
+                    Base : {formatEur(s.cumulativeAmountHtCents)}
+                    {s.cumulativeRevisionAmountHtCents > BigInt(0) && (
+                      <> · Révision : {formatEur(s.cumulativeRevisionAmountHtCents)} · Total : {formatEur(s.cumulativeAmountHtCents + s.cumulativeRevisionAmountHtCents)}</>
+                    )}
                     {s.status === SituationStatus.MOA_APPROVED && s.netAmountHtCents !== null && (
                       <>
                         {" · "}Net à payer :{" "}

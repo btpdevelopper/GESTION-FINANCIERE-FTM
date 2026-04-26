@@ -19,6 +19,7 @@ const ContractSettingsSchema = z.object({
   avanceTravauxRefundInstallments: z.number().int().min(1).nullable(),
   penaltyType: z.enum(["NONE", "FREE_AMOUNT", "DAILY_RATE"]),
   penaltyDailyRateCents: z.number().int().min(0).nullable(),
+  revisionPrixActive: z.boolean(),
 });
 
 export async function upsertCompanyContractSettingsAction(raw: unknown) {
@@ -53,6 +54,7 @@ export async function upsertCompanyContractSettingsAction(raw: unknown) {
       penaltyType: data.penaltyType,
       penaltyDailyRateCents:
         data.penaltyDailyRateCents !== null ? BigInt(data.penaltyDailyRateCents) : null,
+      revisionPrixActive: data.revisionPrixActive,
     },
     update: {
       retenueGarantieActive: data.retenueGarantieActive,
@@ -65,6 +67,7 @@ export async function upsertCompanyContractSettingsAction(raw: unknown) {
       penaltyType: data.penaltyType,
       penaltyDailyRateCents:
         data.penaltyDailyRateCents !== null ? BigInt(data.penaltyDailyRateCents) : null,
+      revisionPrixActive: data.revisionPrixActive,
     },
   });
 

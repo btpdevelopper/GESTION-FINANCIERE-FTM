@@ -48,13 +48,17 @@ type Props = {
   orgId: string;
   currentPeriodLabel: string;
   currentAmountHtCents: number;
+  currentRevisionAmountHtCents: number;
   currentDocumentName: string | null;
   status: string;
   moeAdjustedAmountHtCents: number | null;
+  moeAdjustedRevisionAmountHtCents: number | null;
+  revisionPrixActive: boolean;
   forecastEntries: ForecastEntry[];
   forecastWaived: boolean;
   marcheTotalCents: number;
   previousCumulativeCents: number;
+  previousRevisionCumulativeCents: number;
   ftmBillings: FtmBillingLine[];
   acceptedFtms: AcceptedFtm[];
   usedPeriods: string[];
@@ -66,13 +70,17 @@ export function UpdateDraftForm({
   orgId,
   currentPeriodLabel,
   currentAmountHtCents,
+  currentRevisionAmountHtCents,
   currentDocumentName,
   status,
   moeAdjustedAmountHtCents,
+  moeAdjustedRevisionAmountHtCents,
+  revisionPrixActive,
   forecastEntries,
   forecastWaived,
   marcheTotalCents,
   previousCumulativeCents,
+  previousRevisionCumulativeCents,
   ftmBillings,
   acceptedFtms,
   usedPeriods,
@@ -103,10 +111,17 @@ export function UpdateDraftForm({
   const [periodLabel, setPeriodLabel] = useState(currentPeriodLabel);
   const periodAlreadyUsed = !isCorrection && usedPeriods.includes(periodLabel);
 
-  // Controlled amount state with monthly/cumulative toggle
-  const [inputMode, setInputMode] = useState<"monthly" | "cumulative">("cumulative");
-  const [amountStr, setAmountStr] = useState((currentAmountHtCents / 100).toFixed(2));
-  const [proposeAmountStr, setProposeAmountStr] = useState((currentAmountHtCents / 100).toFixed(2));
+  // Derive current period amounts from stored cumulatives
+  const currentBasePeriodCents = currentAmountHtCents - (previousCumulativeCents - previousRevisionCumulativeCents);
+  const currentRevisionPeriodCents = currentRevisionAmountHtCents - previousRevisionCumulativeCents;
+
+  // Base + revision period inputs
+  const [baseStr, setBaseStr] = useState(Math.max(0, currentBasePeriodCents / 100).toFixed(2));
+  const [revisionStr, setRevisionStr] = useState(Math.max(0, currentRevisionPeriodCents / 100).toFixed(2));
+
+  // Propose amounts for correction mode
+  const [proposeBaseStr, setProposeBaseStr] = useState(Math.max(0, currentBasePeriodCents / 100).toFixed(2));
+  const [proposeRevisionStr, setProposeRevisionStr] = useState(Math.max(0, currentRevisionPeriodCents / 100).toFixed(2));
 
   // FTM billing helpers
   const selectedFtm = acceptedFtms.find((f) => f.ftmId === selectedFtmId);
@@ -116,14 +131,22 @@ export function UpdateDraftForm({
   const alreadyAddedFtmIds = new Set(ftmBillings.map((b) => b.ftmRecordId));
   const availableFtms = acceptedFtms.filter((f) => !alreadyAddedFtmIds.has(f.ftmId));
 
-  // Derive effective cumulative for visuals
-  const parsedAmt = Math.round(parseFloat(amountStr.replace(",", ".") || "0") * 100);
-  const normalCumulativeCents = inputMode === "monthly" ? previousCumulativeCents + parsedAmt : parsedAmt;
+  // Derive effective period total for visuals
+  const prevBaseCumulativeCents = previousCumulativeCents - previousRevisionCumulativeCents;
+  const normalBaseCumul = prevBaseCumulativeCents + Math.round(parseFloat(baseStr.replace(",", ".") || "0") * 100);
+  const normalRevCumul = previousRevisionCumulativeCents + (revisionPrixActive ? Math.round(parseFloat(revisionStr.replace(",", ".") || "0") * 100) : 0);
+  const normalTotalCumul = normalBaseCumul + normalRevCumul;
+
+  const proposeBaseCumul = prevBaseCumulativeCents + Math.round(parseFloat(proposeBaseStr.replace(",", ".") || "0") * 100);
+  const proposeRevCumul = previousRevisionCumulativeCents + (revisionPrixActive ? Math.round(parseFloat(proposeRevisionStr.replace(",", ".") || "0") * 100) : 0);
+  const proposeTotalCumul = proposeBaseCumul + proposeRevCumul;
+
   const effectiveCents = hasMoeAmount
     ? correctionChoice === "accept"
       ? moeAdjustedAmountHtCents!
-      : Math.round(parseFloat(proposeAmountStr.replace(",", ".") || "0") * 100)
-    : normalCumulativeCents;
+      : proposeTotalCumul
+    : normalTotalCumul;
+
   const activeFtmCents = ftmBillings
     .filter((b) => b.status !== "MOE_REFUSED" && b.status !== "MOA_REFUSED")
     .reduce((sum, b) => sum + b.billedAmountCents, 0);
@@ -181,17 +204,26 @@ export function UpdateDraftForm({
     });
   }
 
+  function getAmountCents(): { baseCumul: number; revCumul: number } {
+    if (hasMoeAmount && correctionChoice === "accept") {
+      // Accept MOE total — split back into base/revision using MOE adjusted revision
+      const revCumul = moeAdjustedRevisionAmountHtCents ?? (previousRevisionCumulativeCents + Math.round(parseFloat(revisionStr.replace(",", ".") || "0") * 100));
+      const baseCumul = moeAdjustedAmountHtCents! - revCumul;
+      return { baseCumul, revCumul };
+    }
+    if (hasMoeAmount && correctionChoice === "propose") {
+      return { baseCumul: proposeBaseCumul, revCumul: revisionPrixActive ? proposeRevCumul : previousRevisionCumulativeCents };
+    }
+    return { baseCumul: normalBaseCumul, revCumul: revisionPrixActive ? normalRevCumul : previousRevisionCumulativeCents };
+  }
+
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
     const fd = new FormData(e.currentTarget);
 
-    const amountCents = hasMoeAmount
-      ? correctionChoice === "accept"
-        ? moeAdjustedAmountHtCents!
-        : Math.round(parseFloat(proposeAmountStr.replace(",", ".")) * 100)
-      : normalCumulativeCents;
+    const { baseCumul, revCumul } = getAmountCents();
 
     const correctionComment =
       hasMoeAmount && correctionChoice === "propose"
@@ -217,7 +249,8 @@ export function UpdateDraftForm({
           situationId,
           projectId,
           periodLabel: isCorrection ? currentPeriodLabel : periodLabel,
-          cumulativeAmountHtCents: amountCents,
+          cumulativeAmountHtCents: baseCumul,
+          cumulativeRevisionAmountHtCents: revCumul,
           correctionComment,
           ...(url !== null ? { documentUrl: url, documentName: name } : {}),
         });
@@ -242,11 +275,7 @@ export function UpdateDraftForm({
       return;
     }
 
-    const amountCents = hasMoeAmount
-      ? correctionChoice === "accept"
-        ? moeAdjustedAmountHtCents!
-        : Math.round(parseFloat(proposeAmountStr.replace(",", ".")) * 100)
-      : normalCumulativeCents;
+    const { baseCumul, revCumul } = getAmountCents();
 
     const correctionComment =
       hasMoeAmount && correctionChoice === "propose"
@@ -267,7 +296,8 @@ export function UpdateDraftForm({
           situationId,
           projectId,
           periodLabel: isCorrection ? currentPeriodLabel : periodLabel,
-          cumulativeAmountHtCents: amountCents,
+          cumulativeAmountHtCents: baseCumul,
+          cumulativeRevisionAmountHtCents: revCumul,
           correctionComment,
           ...(url !== null ? { documentUrl: url, documentName: name } : {}),
         });
@@ -339,56 +369,53 @@ export function UpdateDraftForm({
             )}
           </div>
 
-          {/* Amount — normal field when no MOE adjusted amount */}
+          {/* Amount inputs — normal mode (not MOE correction with adjusted amount) */}
           {!hasMoeAmount && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Montant <span className="text-red-500">*</span>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Montant HT (Base) <span className="text-red-500">*</span>
+                  <span className="ml-1 font-normal text-slate-400">— travaux du mois hors révision</span>
                 </label>
-                <div className="flex overflow-hidden rounded border border-slate-200 bg-white text-[11px] dark:border-slate-700 dark:bg-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const cum = Math.round(parseFloat(amountStr.replace(",", ".") || "0") * 100);
-                      setAmountStr((Math.max(0, cum - previousCumulativeCents) / 100).toFixed(2));
-                      setInputMode("monthly");
-                    }}
-                    className={`px-2 py-0.5 transition-colors ${inputMode === "monthly" ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"}`}
-                  >
-                    Mensuel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const monthly = Math.round(parseFloat(amountStr.replace(",", ".") || "0") * 100);
-                      setAmountStr(((previousCumulativeCents + monthly) / 100).toFixed(2));
-                      setInputMode("cumulative");
-                    }}
-                    className={`px-2 py-0.5 transition-colors ${inputMode === "cumulative" ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"}`}
-                  >
-                    Cumulé
-                  </button>
+                <div className="relative">
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="0.01"
+                    value={baseStr}
+                    onChange={(e) => setBaseStr(e.target.value)}
+                    className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
                 </div>
               </div>
-              <div className="relative">
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  step="0.01"
-                  value={amountStr}
-                  onChange={(e) => setAmountStr(e.target.value)}
-                  className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
-              </div>
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                {inputMode === "monthly"
-                  ? <>Cumulé résultant : <strong className="text-slate-700 dark:text-slate-300">{formatEur(normalCumulativeCents)}</strong></>
-                  : <>Montant du mois : <strong className="text-slate-700 dark:text-slate-300">{formatEur(thisPeriodCents)}</strong></>
-                }
-              </p>
+              {revisionPrixActive && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Révision de Prix HT
+                    <span className="ml-1 font-normal text-slate-400">— montant de révision calculé ce mois-ci</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={revisionStr}
+                      onChange={(e) => setRevisionStr(e.target.value)}
+                      className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
+                  </div>
+                </div>
+              )}
+              {revisionPrixActive && normalRevCumul - previousRevisionCumulativeCents > 0 ? (
+                <div className="rounded border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50 text-[11px] text-slate-500 dark:text-slate-400 space-y-0.5">
+                  <div>Base : <strong className="text-slate-700 dark:text-slate-300">{formatEur(Math.round(parseFloat(baseStr.replace(",", ".") || "0") * 100))}</strong></div>
+                  <div>Révision : <strong className="text-slate-700 dark:text-slate-300">{formatEur(normalRevCumul - previousRevisionCumulativeCents)}</strong></div>
+                  <div className="border-t border-slate-100 pt-0.5 dark:border-slate-700">Total à valider : <strong className="text-slate-900 dark:text-slate-100">{formatEur(thisPeriodCents - activeFtmCents)}</strong></div>
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -434,20 +461,41 @@ export function UpdateDraftForm({
 
               {correctionChoice === "propose" && (
                 <div className="pl-6 space-y-3">
-                  <div className="relative">
-                    <input
-                      name="amount"
-                      type="number"
-                      required
-                      min="0"
-                      step="0.01"
-                      value={proposeAmountStr}
-                      onChange={(e) => setProposeAmountStr(e.target.value)}
-                      placeholder="Montant HT proposé"
-                      className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                      Montant HT (Base) <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        required
+                        min="0"
+                        step="0.01"
+                        value={proposeBaseStr}
+                        onChange={(e) => setProposeBaseStr(e.target.value)}
+                        className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
+                    </div>
                   </div>
+                  {revisionPrixActive && (
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                        Révision de Prix HT
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={proposeRevisionStr}
+                          onChange={(e) => setProposeRevisionStr(e.target.value)}
+                          className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                       Justification <span className="text-red-500">*</span>

@@ -124,12 +124,32 @@ export function DgdFinancialRecap({ data }: { data: DgdFinancialRecapData }) {
                     </td>
                   </tr>
 
-                  {/* Travaux bruts */}
-                  <tr key={`brut-${sit.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/20">
-                    <td className={TD}>Travaux bruts de la période</td>
-                    <td className={TD_R}>{fmt(sit.periodNetBeforeDeductionsHtCents)}</td>
-                    <td className="px-3 py-1.5 text-xs text-slate-400 dark:text-slate-600 text-right">—</td>
-                  </tr>
+                  {/* Travaux bruts — split base/revision when revision exists */}
+                  {sit.periodRevisionHtCents > 0 ? (
+                    <>
+                      <tr key={`brut-base-${sit.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/20">
+                        <td className={`${TD} pl-5`}>Travaux bruts — Base</td>
+                        <td className={TD_R}>{fmt(sit.periodNetBeforeDeductionsHtCents - sit.periodRevisionHtCents)}</td>
+                        <td className="px-3 py-1.5 text-xs text-slate-400 dark:text-slate-600 text-right">—</td>
+                      </tr>
+                      <tr key={`brut-rev-${sit.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/20">
+                        <td className={`${TD} pl-5`}>Révision de prix</td>
+                        <td className={TD_R}>{fmt(sit.periodRevisionHtCents)}</td>
+                        <td className="px-3 py-1.5 text-xs text-slate-400 dark:text-slate-600 text-right">—</td>
+                      </tr>
+                      <tr key={`brut-total-${sit.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/20 border-t border-slate-100 dark:border-slate-800">
+                        <td className={`${TD} font-medium`}>Travaux bruts de la période (total)</td>
+                        <td className={`${TD_R} font-medium`}>{fmt(sit.periodNetBeforeDeductionsHtCents)}</td>
+                        <td className="px-3 py-1.5 text-xs text-slate-400 dark:text-slate-600 text-right">—</td>
+                      </tr>
+                    </>
+                  ) : (
+                    <tr key={`brut-${sit.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/20">
+                      <td className={TD}>Travaux bruts de la période</td>
+                      <td className={TD_R}>{fmt(sit.periodNetBeforeDeductionsHtCents)}</td>
+                      <td className="px-3 py-1.5 text-xs text-slate-400 dark:text-slate-600 text-right">—</td>
+                    </tr>
+                  )}
 
                   {/* FTM billing sub-rows */}
                   {sit.ftmBillings.map((b) => (

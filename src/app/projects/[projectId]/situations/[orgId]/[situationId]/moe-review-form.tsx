@@ -29,6 +29,8 @@ type Props = {
   penaltyType: string;
   penaltyDailyRateCents: number | null;
   currentCumulativeHtCents: number;
+  currentRevisionCumulativeHtCents: number;
+  revisionPrixActive: boolean;
   periodLabel: string;
   forecastEntries: ForecastEntry[];
   forecastWaived: boolean;
@@ -48,6 +50,8 @@ export function MoeReviewForm({
   penaltyType,
   penaltyDailyRateCents,
   currentCumulativeHtCents,
+  currentRevisionCumulativeHtCents,
+  revisionPrixActive,
   periodLabel,
   forecastEntries,
   forecastWaived,
@@ -62,13 +66,16 @@ export function MoeReviewForm({
   const [ftmComments, setFtmComments] = useState<Record<string, string>>({});
   const [decision, setDecision] = useState<"APPROVED" | "CORRECTION_NEEDED" | "REFUSED">("APPROVED");
   const [adjustAmount, setAdjustAmount] = useState(false);
-  const [adjustedAmountStr, setAdjustedAmountStr] = useState((currentCumulativeHtCents / 100).toFixed(2));
+  // Separate base/revision adjustment — base is (currentCumulative - currentRevisionCumulative)
+  const currentBaseCumulativeCents = currentCumulativeHtCents - currentRevisionCumulativeHtCents;
+  const [adjustedBaseStr, setAdjustedBaseStr] = useState((currentBaseCumulativeCents / 100).toFixed(2));
+  const [adjustedRevisionStr, setAdjustedRevisionStr] = useState((currentRevisionCumulativeHtCents / 100).toFixed(2));
   const [delayDays, setDelayDays] = useState("");
   const [freeAmount, setFreeAmount] = useState("");
 
-  const effectiveCents = adjustAmount
-    ? Math.round(parseFloat(adjustedAmountStr.replace(",", ".") || "0") * 100)
-    : currentCumulativeHtCents;
+  const adjustedBase = adjustAmount ? Math.round(parseFloat(adjustedBaseStr.replace(",", ".") || "0") * 100) : currentBaseCumulativeCents;
+  const adjustedRevision = adjustAmount && revisionPrixActive ? Math.round(parseFloat(adjustedRevisionStr.replace(",", ".") || "0") * 100) : currentRevisionCumulativeHtCents;
+  const effectiveCents = adjustAmount ? adjustedBase + adjustedRevision : currentCumulativeHtCents;
   const ftmPeriodCents = ftmBillings.reduce((sum, b) => sum + b.billedAmountCents, 0);
   const thisPeriodCents = Math.max(0, effectiveCents - previousCumulativeCents) + ftmPeriodCents;
   const hasForecast = forecastEntries.length > 0;
@@ -99,9 +106,8 @@ export function MoeReviewForm({
     setError(null);
     const fd = new FormData(e.currentTarget);
 
-    const moeAdjustedAmountHtCents = adjustAmount
-      ? Math.round(parseFloat(adjustedAmountStr.replace(",", ".")) * 100)
-      : null;
+    const moeAdjustedBaseAmountHtCents = adjustAmount ? adjustedBase : null;
+    const moeAdjustedRevisionAmountHtCents = adjustAmount && revisionPrixActive ? adjustedRevision : null;
 
     const penaltyAmountCents =
       penaltyType === "DAILY_RATE" && computedPenaltyCents
@@ -137,7 +143,8 @@ export function MoeReviewForm({
           projectId,
           decision,
           comment: fd.get("comment") as string,
-          moeAdjustedAmountHtCents,
+          moeAdjustedBaseAmountHtCents,
+          moeAdjustedRevisionAmountHtCents,
           penaltyType: penaltyType || "NONE",
           penaltyDelayDays: delayDays ? parseInt(delayDays, 10) : null,
           penaltyAmountCents,
@@ -219,29 +226,53 @@ export function MoeReviewForm({
                 onChange={(e) => setAdjustAmount(e.target.checked)}
                 className="rounded border-slate-300"
               />
-              Ajuster le montant cumulé accepté
+              Ajuster les montants acceptés
             </label>
             {adjustAmount && (
-              <div>
-                <div className="relative w-48">
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={adjustedAmountStr}
-                    onChange={(e) => setAdjustedAmountStr(e.target.value)}
-                    className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
-                </div>
-                {hasForecast && (
-                  <div className="mt-2">
-                    <ForecastComplianceBanner
-                      entries={forecastEntries}
-                      periodLabel={periodLabel}
-                      thisPeriodCents={thisPeriodCents}
+              <div className="space-y-2 pl-1">
+                <div>
+                  <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                    Montant Base cumulé accepté (€)
+                  </label>
+                  <div className="relative w-48">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={adjustedBaseStr}
+                      onChange={(e) => setAdjustedBaseStr(e.target.value)}
+                      className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                     />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
                   </div>
+                </div>
+                {revisionPrixActive && (
+                  <div>
+                    <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                      Révision de Prix cumulée acceptée (€)
+                    </label>
+                    <div className="relative w-48">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={adjustedRevisionStr}
+                        onChange={(e) => setAdjustedRevisionStr(e.target.value)}
+                        className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Total ajusté : <strong className="text-slate-700 dark:text-slate-300">{formatEur(effectiveCents)}</strong>
+                </p>
+                {hasForecast && (
+                  <ForecastComplianceBanner
+                    entries={forecastEntries}
+                    periodLabel={periodLabel}
+                    thisPeriodCents={thisPeriodCents}
+                  />
                 )}
               </div>
             )}

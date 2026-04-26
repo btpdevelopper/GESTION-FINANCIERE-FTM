@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { setPasswordAction } from "@/server/auth/set-password-action";
 import { KeyRound, CheckCircle2, Eye, EyeOff } from "lucide-react";
@@ -8,7 +8,7 @@ import { KeyRound, CheckCircle2, Eye, EyeOff } from "lucide-react";
 const INPUT_CLS =
   "w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none transition-all focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white dark:focus:border-indigo-400 dark:focus:bg-slate-900 dark:focus:ring-indigo-400/10";
 
-export default function SetPasswordPage() {
+function SetPasswordForm() {
   const router = useRouter();
   const params = useSearchParams();
   const token = params.get("token") ?? "";
@@ -171,5 +171,13 @@ export default function SetPasswordPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function SetPasswordPage() {
+  return (
+    <Suspense>
+      <SetPasswordForm />
+    </Suspense>
   );
 }

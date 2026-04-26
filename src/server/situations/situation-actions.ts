@@ -15,6 +15,7 @@ import {
   getOrgMarcheTotalCents,
   getPastRefundedAmount,
   getPreviousApprovedCumulative,
+  getPreviousApprovedRevisionCumulative,
   getAcceptedFtmsForOrg,
   getFtmApprovedBilledCents,
 } from "./situation-queries";
@@ -55,6 +56,7 @@ const CreateSituationSchema = z.object({
   projectId: z.string().uuid(),
   periodLabel: z.string().min(1).max(100),
   cumulativeAmountHtCents: z.number().int().min(0),
+  cumulativeRevisionAmountHtCents: z.number().int().min(0).default(0),
   documentUrl: z.string().max(1000).optional().nullable(),
   documentName: z.string().max(255).optional().nullable(),
 });
@@ -104,6 +106,15 @@ export async function createSituationAction(raw: unknown) {
 
   const nextNumero = lastSituation ? lastSituation.numero + 1 : 1;
 
+  // Enforce server-side: if revision is not active for this org, ignore any revision amount
+  const contractSettingsForCreate = await prisma.companyContractSettings.findUnique({
+    where: { projectId_organizationId: { projectId: data.projectId, organizationId: orgId } },
+    select: { revisionPrixActive: true },
+  });
+  const revisionCents = contractSettingsForCreate?.revisionPrixActive
+    ? BigInt(data.cumulativeRevisionAmountHtCents)
+    : BigInt(0);
+
   const situation = await prisma.situationTravaux.create({
     data: {
       projectId: data.projectId,
@@ -112,6 +123,7 @@ export async function createSituationAction(raw: unknown) {
       periodLabel: data.periodLabel,
       status: SituationStatus.DRAFT,
       cumulativeAmountHtCents: BigInt(data.cumulativeAmountHtCents),
+      cumulativeRevisionAmountHtCents: revisionCents,
       documentUrl: data.documentUrl ?? null,
       documentName: data.documentName ?? null,
     },
@@ -129,6 +141,7 @@ const UpdateDraftSchema = z.object({
   projectId: z.string().uuid(),
   periodLabel: z.string().min(1).max(100),
   cumulativeAmountHtCents: z.number().int().min(0),
+  cumulativeRevisionAmountHtCents: z.number().int().min(0).default(0),
   documentUrl: z.string().max(1000).optional().nullable(),
   documentName: z.string().max(255).optional().nullable(),
   correctionComment: z.string().max(2000).optional().nullable(),
@@ -178,11 +191,12 @@ export async function updateSituationDraftAction(raw: unknown) {
     }
   }
 
-  // When the MOE set an adjusted amount, proposing a different amount requires a comment
+  // When the MOE set an adjusted amount, proposing a different total requires a comment
+  const newTotal = BigInt(data.cumulativeAmountHtCents) + BigInt(data.cumulativeRevisionAmountHtCents ?? 0);
   if (
     situation.status === SituationStatus.MOE_CORRECTION &&
     situation.moeAdjustedAmountHtCents !== null &&
-    BigInt(data.cumulativeAmountHtCents) !== situation.moeAdjustedAmountHtCents &&
+    newTotal !== situation.moeAdjustedAmountHtCents &&
     !data.correctionComment?.trim()
   ) {
     throw new Error("Un commentaire est obligatoire lorsque vous proposez un montant différent de celui du MOE.");
@@ -193,11 +207,21 @@ export async function updateSituationDraftAction(raw: unknown) {
     throw new Error("Vous devez joindre un nouveau document lors d'une correction.");
   }
 
+  // Enforce server-side: if revision is not active for this org, ignore any revision amount
+  const contractSettingsForUpdate = await prisma.companyContractSettings.findUnique({
+    where: { projectId_organizationId: { projectId: data.projectId, organizationId: member.organizationId } },
+    select: { revisionPrixActive: true },
+  });
+  const revisionCentsUpdate = contractSettingsForUpdate?.revisionPrixActive
+    ? BigInt(data.cumulativeRevisionAmountHtCents ?? 0)
+    : BigInt(0);
+
   await prisma.situationTravaux.update({
     where: { id: data.situationId },
     data: {
       periodLabel: data.periodLabel,
       cumulativeAmountHtCents: BigInt(data.cumulativeAmountHtCents),
+      cumulativeRevisionAmountHtCents: revisionCentsUpdate,
       correctionComment: data.correctionComment ?? null,
       // Only overwrite document fields when a new file was explicitly provided
       ...(data.documentUrl !== undefined
@@ -329,7 +353,8 @@ const MoeReviewSchema = z.object({
   projectId: z.string().uuid(),
   decision: z.enum(["APPROVED", "CORRECTION_NEEDED", "REFUSED"]),
   comment: z.string().min(1, "Un commentaire est obligatoire."),
-  moeAdjustedAmountHtCents: z.number().int().min(0).optional().nullable(),
+  moeAdjustedBaseAmountHtCents: z.number().int().min(0).optional().nullable(),
+  moeAdjustedRevisionAmountHtCents: z.number().int().min(0).optional().nullable(),
   penaltyType: z.enum(["NONE", "FREE_AMOUNT", "DAILY_RATE"]).optional().nullable(),
   penaltyDelayDays: z.number().int().min(0).optional().nullable(),
   penaltyAmountCents: z.number().int().min(0).optional().nullable(),
@@ -388,6 +413,22 @@ export async function moeReviewSituationAction(raw: unknown) {
       ? SituationStatus.MOE_CORRECTION
       : SituationStatus.MOE_REFUSED;
 
+  // Compute MOE total adjusted amount from separate base + revision adjustments
+  const hasBaseAdjust = data.moeAdjustedBaseAmountHtCents != null;
+  const hasRevisionAdjust = data.moeAdjustedRevisionAmountHtCents != null;
+  let moeAdjustedTotal: bigint | null = null;
+  let moeAdjustedRevision: bigint | null = null;
+  if (hasBaseAdjust || hasRevisionAdjust) {
+    const adjustedBase = hasBaseAdjust
+      ? BigInt(data.moeAdjustedBaseAmountHtCents!)
+      : situation.cumulativeAmountHtCents;
+    const adjustedRevision = hasRevisionAdjust
+      ? BigInt(data.moeAdjustedRevisionAmountHtCents!)
+      : situation.cumulativeRevisionAmountHtCents;
+    moeAdjustedTotal = adjustedBase + adjustedRevision;
+    moeAdjustedRevision = adjustedRevision;
+  }
+
   await prisma.$transaction([
     prisma.situationTravaux.update({
       where: { id: data.situationId },
@@ -397,10 +438,8 @@ export async function moeReviewSituationAction(raw: unknown) {
         moeReviewedById: member.id,
         moeReviewedAt: new Date(),
         moeComment: data.comment,
-        moeAdjustedAmountHtCents:
-          data.moeAdjustedAmountHtCents !== null && data.moeAdjustedAmountHtCents !== undefined
-            ? BigInt(data.moeAdjustedAmountHtCents)
-            : null,
+        moeAdjustedAmountHtCents: moeAdjustedTotal,
+        moeAdjustedRevisionAmountHtCents: moeAdjustedRevision,
         penaltyType: effectivePenaltyType as "NONE" | "FREE_AMOUNT" | "DAILY_RATE",
         penaltyDelayDays: data.penaltyDelayDays ?? null,
         penaltyAmountCents: penaltyAmount > BigInt(0) ? penaltyAmount : null,
@@ -427,10 +466,7 @@ export async function moeReviewSituationAction(raw: unknown) {
       eventType: "MOE_REVIEWED",
       decision: data.decision,
       comment: data.comment,
-      adjustedAmountHtCents:
-        data.moeAdjustedAmountHtCents != null
-          ? BigInt(data.moeAdjustedAmountHtCents)
-          : null,
+      adjustedAmountHtCents: moeAdjustedTotal,
       penaltyAmountCents: penaltyAmount > BigInt(0) ? penaltyAmount : null,
     },
   });
@@ -438,7 +474,7 @@ export async function moeReviewSituationAction(raw: unknown) {
   await audit(user.id, "SITUATION_MOE_REVIEWED", data.situationId, {
     decision: data.decision,
     comment: data.comment,
-    adjustedAmount: data.moeAdjustedAmountHtCents,
+    adjustedAmount: moeAdjustedTotal?.toString() ?? null,
     penaltyAmountCents: penaltyAmount.toString(),
   });
 
@@ -624,12 +660,13 @@ export async function moaValidateSituationAction(raw: unknown) {
     where: { projectId_organizationId: { projectId: data.projectId, organizationId: situation.organizationId } },
   });
 
-  const [marcheTotal, ftmTotal, pastRefunded, previousCumulative, dedicatedPenalties, ftmBillingLines] =
+  const [marcheTotal, ftmTotal, pastRefunded, previousCumulative, previousRevisionCumulative, dedicatedPenalties, ftmBillingLines] =
     await Promise.all([
       getOrgMarcheTotalCents(data.projectId, situation.organizationId),
       getOrgApprovedFtmTotalCents(data.projectId, situation.organizationId),
       getPastRefundedAmount(data.projectId, situation.organizationId, situation.numero),
       getPreviousApprovedCumulative(data.projectId, situation.organizationId, situation.numero),
+      getPreviousApprovedRevisionCumulative(data.projectId, situation.organizationId, situation.numero),
       getPenaltiesForSituation(data.situationId),
       prisma.situationFtmBilling.findMany({
         where: { situationId: data.situationId, status: "MOA_APPROVED" },
@@ -642,11 +679,19 @@ export async function moaValidateSituationAction(raw: unknown) {
   const penaltyAmount = (situation.penaltyAmountCents ?? BigInt(0)) + dedicatedTotal;
   const ftmBilledTotal = ftmBillingLines.reduce((s, l) => s + l.billedAmountCents, BigInt(0));
 
+  // Total cumulative = base + revision
+  const totalCumulative = situation.cumulativeAmountHtCents + situation.cumulativeRevisionAmountHtCents;
+
+  // Accepted revision cumulative (MOE may have adjusted it)
+  const acceptedRevisionCumulative =
+    situation.moeAdjustedRevisionAmountHtCents ?? situation.cumulativeRevisionAmountHtCents;
+  const periodRevisionHtCents = acceptedRevisionCumulative - previousRevisionCumulative;
+
   let snapshot = null;
   if (contractSettings) {
     const base = computeFinancialSnapshot(
       {
-        cumulativeAmountHtCents: situation.cumulativeAmountHtCents,
+        cumulativeAmountHtCents: totalCumulative,
         previousCumulativeHtCents: previousCumulative,
         contractSettings,
         pastRefundedAmountCents: pastRefunded,
@@ -659,7 +704,7 @@ export async function moaValidateSituationAction(raw: unknown) {
     snapshot = { ...base, netAmountHtCents: base.netAmountHtCents + ftmBilledTotal };
   } else {
     // No contract settings: simple period net, no deductions
-    const accepted = situation.moeAdjustedAmountHtCents ?? situation.cumulativeAmountHtCents;
+    const accepted = situation.moeAdjustedAmountHtCents ?? totalCumulative;
     const periodNet = accepted - previousCumulative;
     snapshot = {
       acceptedCumulativeHtCents: accepted,
@@ -682,6 +727,7 @@ export async function moaValidateSituationAction(raw: unknown) {
       acceptedCumulativeHtCents: snapshot.acceptedCumulativeHtCents,
       previousCumulativeHtCents: snapshot.previousCumulativeHtCents,
       periodNetBeforeDeductionsHtCents: snapshot.periodNetBeforeDeductionsHtCents,
+      periodRevisionHtCents,
       retenueGarantieAmountCents: snapshot.retenueGarantieAmountCents,
       avanceTravauxRemboursementCents: snapshot.avanceTravauxRemboursementCents,
       ftmBilledAmountCents: ftmBilledTotal > BigInt(0) ? ftmBilledTotal : null,

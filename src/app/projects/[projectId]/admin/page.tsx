@@ -113,6 +113,7 @@ export default async function ProjectAdminPage({
             avanceTravauxRefundInstallments: s.avanceTravauxRefundInstallments,
             penaltyType: s.penaltyType as "NONE" | "FREE_AMOUNT" | "DAILY_RATE",
             penaltyDailyRateCents: s.penaltyDailyRateCents !== null ? Number(s.penaltyDailyRateCents) : null,
+            revisionPrixActive: s.revisionPrixActive,
           }
         : null,
     };

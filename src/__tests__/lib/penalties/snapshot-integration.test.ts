@@ -27,6 +27,7 @@ function makeSettings(overrides: Partial<CompanyContractSettings> = {}): Company
     cautionBancaireAmountCents: null,
     cautionBancaireDocumentUrl: null,
     cautionBancaireDocumentName: null,
+    revisionPrixActive: false,
     ...overrides,
   };
 }

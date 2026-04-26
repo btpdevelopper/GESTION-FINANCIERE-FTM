@@ -319,3 +319,23 @@ export async function getPreviousApprovedCumulative(
   });
   return prev?.acceptedCumulativeHtCents ?? BigInt(0);
 }
+
+/** Cumulative revision amount from last MOA_APPROVED situation for this org */
+export async function getPreviousApprovedRevisionCumulative(
+  projectId: string,
+  orgId: string,
+  beforeNumero: number
+): Promise<bigint> {
+  const prev = await prisma.situationTravaux.findFirst({
+    where: {
+      projectId,
+      organizationId: orgId,
+      status: "MOA_APPROVED",
+      numero: { lt: beforeNumero },
+    },
+    orderBy: { numero: "desc" },
+    select: { cumulativeRevisionAmountHtCents: true, moeAdjustedRevisionAmountHtCents: true },
+  });
+  if (!prev) return BigInt(0);
+  return prev.moeAdjustedRevisionAmountHtCents ?? prev.cumulativeRevisionAmountHtCents;
+}

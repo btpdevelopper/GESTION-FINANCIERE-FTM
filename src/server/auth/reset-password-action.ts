@@ -5,6 +5,11 @@ import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
 import { PasswordResetEmail } from "@/emails/password-reset";
 import { createResetToken } from "@/lib/auth/tokens";
+import {
+  checkPasswordResetRateLimit,
+  getClientIp,
+  recordLoginAttempt,
+} from "@/lib/auth/rate-limit";
 
 export async function sendPasswordResetAction(input: {
   email: string;
@@ -12,9 +17,21 @@ export async function sendPasswordResetAction(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   const email = input.email.trim().toLowerCase();
 
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!email || email.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { ok: false, error: "Adresse email invalide." };
   }
+
+  const ip = await getClientIp();
+  const rl = await checkPasswordResetRateLimit({ email, ip });
+  if (!rl.allowed) {
+    // Silent OK to keep enumeration-safe behavior — the attacker cannot tell
+    // whether they hit a rate limit or a non-existent account.
+    return { ok: true };
+  }
+
+  // Record the attempt up-front so per-IP / per-email windows tick even when
+  // the email is unknown (otherwise attackers could enumerate by spamming).
+  await recordLoginAttempt({ kind: "PASSWORD_RESET_REQUEST", email, ip, success: false });
 
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000";

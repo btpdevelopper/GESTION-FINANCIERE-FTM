@@ -3,11 +3,12 @@
 import { signInAction } from "@/server/auth/sign-in-action";
 import { sendPasswordResetAction } from "@/server/auth/reset-password-action";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Mail, ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert } from "@/components/ui/alert";
+import { TurnstileWidget } from "./turnstile-widget";
 
 type View = "login" | "reset" | "reset-sent";
 
@@ -21,16 +22,29 @@ export function LoginForm() {
   const [isFirstConnection, setIsFirstConnection] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [requireCaptcha, setRequireCaptcha] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+
+  const onTurnstileVerify = useCallback((token: string) => setTurnstileToken(token), []);
 
   async function onLogin(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setPending(true);
-    const result = await signInAction({ email, password, callbackUrl });
+    const result = await signInAction({
+      email,
+      password,
+      callbackUrl,
+      turnstileToken: turnstileToken || undefined,
+    });
     // signInAction redirects on success; this branch is only reached on error.
     setPending(false);
     if (!result.ok) {
       setError(result.error);
+      if (result.requireCaptcha) {
+        setRequireCaptcha(true);
+        setTurnstileToken("");
+      }
     }
   }
 
@@ -160,8 +174,18 @@ export function LoginForm() {
           placeholder="••••••••"
         />
       </div>
+      {requireCaptcha && (
+        <div className="flex justify-center">
+          <TurnstileWidget onVerify={onTurnstileVerify} />
+        </div>
+      )}
       {error && <Alert variant="error">{error}</Alert>}
-      <Button type="submit" size="md" disabled={pending} className="w-full justify-center">
+      <Button
+        type="submit"
+        size="md"
+        disabled={pending || (requireCaptcha && !turnstileToken)}
+        className="w-full justify-center"
+      >
         {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
         {pending ? "Connexion en cours…" : "Se connecter"}
       </Button>

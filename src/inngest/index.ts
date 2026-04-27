@@ -16,6 +16,8 @@ export {
 
 export { remindQuotes } from "./functions/remind-quotes";
 
+export { purgeLoginAttempts } from "./functions/purge-login-attempts";
+
 export {
   onDgdSubmitted,
   onDgdMoeReviewed,

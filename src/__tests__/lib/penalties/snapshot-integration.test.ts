@@ -39,8 +39,10 @@ describe("Financial snapshot with dedicated penalties", () => {
   it("no deductions, no penalties: net = period amount", () => {
     const snapshot = computeFinancialSnapshot(
       {
-        cumulativeAmountHtCents: BigInt(50_000_00),
-        previousCumulativeHtCents: BigInt(30_000_00),
+        cumulativeBaseHtCents: BigInt(50_000_00),
+        cumulativeRevisionHtCents: BigInt(0),
+        previousCumulativeBaseHtCents: BigInt(30_000_00),
+        previousCumulativeRevisionHtCents: BigInt(0),
         contractSettings: makeSettings(),
         pastRefundedAmountCents: BigInt(0),
         situationNumero: 1,
@@ -58,8 +60,10 @@ describe("Financial snapshot with dedicated penalties", () => {
 
     const snapshot = computeFinancialSnapshot(
       {
-        cumulativeAmountHtCents: BigInt(50_000_00),
-        previousCumulativeHtCents: BigInt(30_000_00),
+        cumulativeBaseHtCents: BigInt(50_000_00),
+        cumulativeRevisionHtCents: BigInt(0),
+        previousCumulativeBaseHtCents: BigInt(30_000_00),
+        previousCumulativeRevisionHtCents: BigInt(0),
         contractSettings: makeSettings(),
         pastRefundedAmountCents: BigInt(0),
         situationNumero: 1,
@@ -81,8 +85,10 @@ describe("Financial snapshot with dedicated penalties", () => {
 
     const snapshot = computeFinancialSnapshot(
       {
-        cumulativeAmountHtCents: BigInt(50_000_00),
-        previousCumulativeHtCents: BigInt(30_000_00),
+        cumulativeBaseHtCents: BigInt(50_000_00),
+        cumulativeRevisionHtCents: BigInt(0),
+        previousCumulativeBaseHtCents: BigInt(30_000_00),
+        previousCumulativeRevisionHtCents: BigInt(0),
         contractSettings: makeSettings(),
         pastRefundedAmountCents: BigInt(0),
         situationNumero: 1,
@@ -100,8 +106,10 @@ describe("Financial snapshot with dedicated penalties", () => {
 
     const snapshot = computeFinancialSnapshot(
       {
-        cumulativeAmountHtCents: BigInt(50_000_00),
-        previousCumulativeHtCents: BigInt(30_000_00),
+        cumulativeBaseHtCents: BigInt(50_000_00),
+        cumulativeRevisionHtCents: BigInt(0),
+        previousCumulativeBaseHtCents: BigInt(30_000_00),
+        previousCumulativeRevisionHtCents: BigInt(0),
         contractSettings: makeSettings(),
         pastRefundedAmountCents: BigInt(0),
         situationNumero: 1,
@@ -121,8 +129,10 @@ describe("Financial snapshot with dedicated penalties", () => {
 
     const snapshot = computeFinancialSnapshot(
       {
-        cumulativeAmountHtCents: BigInt(50_000_00),
-        previousCumulativeHtCents: BigInt(30_000_00),
+        cumulativeBaseHtCents: BigInt(50_000_00),
+        cumulativeRevisionHtCents: BigInt(0),
+        previousCumulativeBaseHtCents: BigInt(30_000_00),
+        previousCumulativeRevisionHtCents: BigInt(0),
         contractSettings: makeSettings({
           retenueGarantieActive: true,
           retenueGarantiePercent: retenuePct as unknown as CompanyContractSettings["retenueGarantiePercent"],
@@ -158,8 +168,10 @@ describe("Financial snapshot with dedicated penalties", () => {
 
     const snapshot = computeFinancialSnapshot(
       {
-        cumulativeAmountHtCents: BigInt(50_000_00),
-        previousCumulativeHtCents: BigInt(30_000_00),
+        cumulativeBaseHtCents: BigInt(50_000_00),
+        cumulativeRevisionHtCents: BigInt(0),
+        previousCumulativeBaseHtCents: BigInt(30_000_00),
+        previousCumulativeRevisionHtCents: BigInt(0),
         contractSettings: makeSettings(),
         pastRefundedAmountCents: BigInt(0),
         situationNumero: 1,

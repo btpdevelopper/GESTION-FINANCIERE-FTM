@@ -254,6 +254,8 @@ RESEND_API_KEY
 EMAIL_FROM
 INNGEST_EVENT_KEY
 INNGEST_SIGNING_KEY
+NEXT_PUBLIC_TURNSTILE_SITE_KEY  # Cloudflare Turnstile site key (login captcha)
+TURNSTILE_SECRET_KEY            # Cloudflare Turnstile secret (login captcha)
 ```
 Note: `NEXT_PUBLIC_APP_URL` was missing from this list but is used in email/Inngest payloads.
 All scheduled jobs run through Inngest — there are no raw Vercel cron endpoints in this project.

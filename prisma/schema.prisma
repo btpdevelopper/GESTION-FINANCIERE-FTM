@@ -950,3 +950,24 @@ model DgdReview {
 
   @@index([dgdRecordId, createdAt])
 }
+
+// --- Auth abuse / rate limiting ---
+
+enum LoginAttemptKind {
+  SIGN_IN
+  PASSWORD_RESET_REQUEST
+  PASSWORD_SET
+}
+
+model LoginAttempt {
+  id        String           @id @default(cuid())
+  kind      LoginAttemptKind
+  email     String?
+  ipHash    String
+  success   Boolean
+  createdAt DateTime         @default(now())
+
+  @@index([email, kind, createdAt])
+  @@index([ipHash, kind, createdAt])
+  @@index([createdAt])
+}

@@ -687,19 +687,33 @@ export async function moaValidateSituationAction(raw: unknown) {
     situation.moeAdjustedRevisionAmountHtCents ?? situation.cumulativeRevisionAmountHtCents;
   const periodRevisionHtCents = acceptedRevisionCumulative - previousRevisionCumulative;
 
+  // moeAdjustedAmountHtCents stores the MOE-adjusted total (base + revision).
+  // Derive the MOE-adjusted base by subtracting the MOE-adjusted revision so the
+  // avance progress percent (computed on base only) is accurate.
+  const moeAdjustedBaseHtCents =
+    situation.moeAdjustedAmountHtCents !== null
+      ? situation.moeAdjustedAmountHtCents - acceptedRevisionCumulative
+      : null;
+  const previousBaseCumulative = previousCumulative - previousRevisionCumulative;
+
   let snapshot = null;
   if (contractSettings) {
     const base = computeFinancialSnapshot(
       {
-        cumulativeAmountHtCents: totalCumulative,
-        previousCumulativeHtCents: previousCumulative,
+        cumulativeBaseHtCents: situation.cumulativeAmountHtCents,
+        cumulativeRevisionHtCents: situation.cumulativeRevisionAmountHtCents,
+        previousCumulativeBaseHtCents: previousBaseCumulative,
+        previousCumulativeRevisionHtCents: previousRevisionCumulative,
         contractSettings,
         pastRefundedAmountCents: pastRefunded,
         situationNumero: situation.numero,
         totalEnveloppeHtCents: totalEnveloppe,
         penaltyAmountCents: penaltyAmount,
       },
-      situation.moeAdjustedAmountHtCents
+      {
+        moeAdjustedBaseHtCents,
+        moeAdjustedRevisionHtCents: situation.moeAdjustedRevisionAmountHtCents,
+      }
     );
     snapshot = { ...base, netAmountHtCents: base.netAmountHtCents + ftmBilledTotal };
   } else {

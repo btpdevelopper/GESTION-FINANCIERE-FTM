@@ -119,8 +119,10 @@ describe("FTM billing cap enforcement", () => {
 describe("computeFinancialSnapshot with FTM billing added on top", () => {
   it("adds ftmBilledTotal to netAmountHtCents correctly", () => {
     const snapshot = computeFinancialSnapshot({
-      cumulativeAmountHtCents: cents(100_000),
-      previousCumulativeHtCents: cents(60_000),
+      cumulativeBaseHtCents: cents(100_000),
+      cumulativeRevisionHtCents: BigInt(0),
+      previousCumulativeBaseHtCents: cents(60_000),
+      previousCumulativeRevisionHtCents: BigInt(0),
       contractSettings: baseSettings,
       pastRefundedAmountCents: BigInt(0),
       situationNumero: 3,
@@ -146,8 +148,10 @@ describe("computeFinancialSnapshot with FTM billing added on top", () => {
     };
 
     const snapshot = computeFinancialSnapshot({
-      cumulativeAmountHtCents: cents(100_000),
-      previousCumulativeHtCents: cents(80_000),
+      cumulativeBaseHtCents: cents(100_000),
+      cumulativeRevisionHtCents: BigInt(0),
+      previousCumulativeBaseHtCents: cents(80_000),
+      previousCumulativeRevisionHtCents: BigInt(0),
       contractSettings: settingsWithRetenue,
       pastRefundedAmountCents: BigInt(0),
       situationNumero: 1,
@@ -168,8 +172,10 @@ describe("computeFinancialSnapshot with FTM billing added on top", () => {
 
   it("ftmBilledTotal = 0 when no FTMs are approved", () => {
     const snapshot = computeFinancialSnapshot({
-      cumulativeAmountHtCents: cents(50_000),
-      previousCumulativeHtCents: cents(30_000),
+      cumulativeBaseHtCents: cents(50_000),
+      cumulativeRevisionHtCents: BigInt(0),
+      previousCumulativeBaseHtCents: cents(30_000),
+      previousCumulativeRevisionHtCents: BigInt(0),
       contractSettings: baseSettings,
       pastRefundedAmountCents: BigInt(0),
       situationNumero: 2,
@@ -186,8 +192,10 @@ describe("computeFinancialSnapshot with FTM billing added on top", () => {
   it("ftmBilledTotal is positive even when works net is negative due to penalties", () => {
     // Edge case: penalty > periodNet, but FTM billing offsets some of the negative
     const snapshot = computeFinancialSnapshot({
-      cumulativeAmountHtCents: cents(10_000),
-      previousCumulativeHtCents: cents(8_000),
+      cumulativeBaseHtCents: cents(10_000),
+      cumulativeRevisionHtCents: BigInt(0),
+      previousCumulativeBaseHtCents: cents(8_000),
+      previousCumulativeRevisionHtCents: BigInt(0),
       contractSettings: baseSettings,
       pastRefundedAmountCents: BigInt(0),
       situationNumero: 1,

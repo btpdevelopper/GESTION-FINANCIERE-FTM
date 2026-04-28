@@ -39,10 +39,20 @@ import { CompanyDemandContext } from "./company-demand-context";
 
 export default async function FtmDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string; ftmId: string }>;
+  searchParams?: Promise<{ from?: string }>;
 }) {
   const { projectId, ftmId } = await params;
+  const { from } = (await searchParams) ?? {};
+  const backHref =
+    from === "demandes"
+      ? `/projects/${projectId}/ftms?tab=demandes`
+      : from === "tableau"
+        ? `/projects/${projectId}/ftms?tab=tableau`
+        : `/projects/${projectId}/ftms`;
+  const backLabel = from === "demandes" ? "Retour aux demandes" : "Retour aux FTM";
   const user = await getAuthUser();
   if (!user?.id) notFound();
   const pm = await requireProjectMember(user.id, projectId);
@@ -97,10 +107,10 @@ export default async function FtmDetailPage({
       {/* ── Top Navigation Return ── */}
       <div className="pt-2">
         <Link
-          href={`/projects/${projectId}/ftms`}
+          href={backHref}
           className="text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 dark:hover:text-slate-300"
         >
-          &larr; Retour aux FTM
+          &larr; {backLabel}
         </Link>
       </div>
 
@@ -140,9 +150,14 @@ export default async function FtmDetailPage({
               return (
                 <CompanyDemandContext
                   companyName={ftm.fromDemand.initiator?.organization?.name ?? ftm.fromDemand.initiator?.user?.name ?? "Entreprise"}
+                  submitterName={ftm.fromDemand.initiator?.user?.name ?? ftm.fromDemand.initiator?.user?.email ?? null}
                   description={ftm.fromDemand.description}
                   documents={(ftm.fromDemand.documents ?? []).map((d: any) => ({ id: d.id, name: d.name, url: d.url }))}
+                  demandTitle={ftm.fromDemand.title ?? null}
+                  ftmTitle={ftm.title}
                   requestedDate={ftm.fromDemand.requestedMoeResponseDate}
+                  submittedAt={ftm.fromDemand.createdAt}
+                  approvedAt={ftm.createdAt}
                 />
               );
             })()}

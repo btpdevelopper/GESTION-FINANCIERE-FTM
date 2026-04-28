@@ -27,12 +27,17 @@ type Props = {
   situationId: string;
   orgId: string;
   periodLabel: string;
+  /** Submitted total (base + revision) cumulative for this situation. */
   submittedCumulativeCents: number;
+  /** MOE-accepted total cumulative (base + revision after MOE adjust). */
   acceptedCumulativeCents: number;
+  /** MOE-accepted revision-only cumulative — used to derive base. */
+  acceptedRevisionCumulativeCents: number;
   forecastEntries: ForecastEntry[];
   forecastWaived: boolean;
   marcheTotalCents: number;
   previousCumulativeCents: number;
+  previousRevisionCumulativeCents: number;
   ftmBillings: FtmBillingLine[];
 };
 
@@ -52,10 +57,12 @@ export function MoaValidateForm({
   periodLabel,
   submittedCumulativeCents,
   acceptedCumulativeCents,
+  acceptedRevisionCumulativeCents,
   forecastEntries,
   forecastWaived,
   marcheTotalCents,
   previousCumulativeCents,
+  previousRevisionCumulativeCents,
   ftmBillings,
 }: Props) {
   const router = useRouter();
@@ -76,13 +83,43 @@ export function MoaValidateForm({
     }
   }, [anyFtmCorrectionSelected, decision]);
 
-  const ftmPeriodCents = ftmBillings.reduce((sum, b) => sum + b.billedAmountCents, 0);
-  const thisPeriodCents = Math.max(0, acceptedCumulativeCents - previousCumulativeCents) + ftmPeriodCents;
+  // Refused FTM lines should not inflate the period total.
+  const ftmPeriodCents = ftmBillings
+    .filter((b) => b.status !== "MOE_REFUSED" && b.status !== "MOA_REFUSED")
+    .reduce((sum, b) => sum + b.billedAmountCents, 0);
+
+  // Derive base-only figures so forecast comparison ignores revision + FTM.
+  const prevBaseCumulativeCents = previousCumulativeCents - previousRevisionCumulativeCents;
+  const submittedRevisionCumulativeCents = acceptedRevisionCumulativeCents; // company submission shares the same revision (MOE may have adjusted it but submitted total stays referenced for display)
+  const submittedBaseCumulativeCents =
+    submittedCumulativeCents - submittedRevisionCumulativeCents;
+  const acceptedBaseCumulativeCents =
+    acceptedCumulativeCents - acceptedRevisionCumulativeCents;
+
+  const submittedBasePeriodCents = Math.max(
+    0,
+    submittedBaseCumulativeCents - prevBaseCumulativeCents,
+  );
+  const moeBasePeriodCents = Math.max(
+    0,
+    acceptedBaseCumulativeCents - prevBaseCumulativeCents,
+  );
+  const moeRevisionPeriodCents = Math.max(
+    0,
+    acceptedRevisionCumulativeCents - previousRevisionCumulativeCents,
+  );
+
+  // Total period (base + revision + FTM) — for the progress bar and Net summary.
+  const thisPeriodCents = moeBasePeriodCents + moeRevisionPeriodCents + ftmPeriodCents;
+
+  // Legacy aliases used by the comparison table; both retained but rebound to
+  // base-only so the % delta vs prévisionnel is mathematically correct.
+  const submittedPeriodCents = submittedBasePeriodCents;
+  const moePeriodCents = moeBasePeriodCents;
+
   const hasForecast = forecastEntries.length > 0;
   const showPanel = hasForecast || forecastWaived;
 
-  const submittedPeriodCents = Math.max(0, submittedCumulativeCents - previousCumulativeCents);
-  const moePeriodCents = Math.max(0, acceptedCumulativeCents - previousCumulativeCents);
   const forecastEntry = forecastEntries.find((e) => e.periodLabel === periodLabel);
   const forecastCents = forecastEntry?.plannedAmountHtCents ?? null;
 
@@ -201,11 +238,11 @@ export function MoaValidateForm({
         marcheTotalCents={marcheTotalCents}
       />
 
-      {hasForecast && thisPeriodCents > 0 && (
+      {hasForecast && moePeriodCents > 0 && (
         <ForecastComplianceBanner
           entries={forecastEntries}
           periodLabel={periodLabel}
-          thisPeriodCents={thisPeriodCents}
+          thisPeriodCents={moePeriodCents}
         />
       )}
 
@@ -382,7 +419,7 @@ export function MoaValidateForm({
             entries={forecastEntries}
             forecastWaived={forecastWaived}
             periodLabel={periodLabel}
-            thisPeriodCents={thisPeriodCents}
+            thisPeriodCents={moePeriodCents}
           />
         )}
       </div>

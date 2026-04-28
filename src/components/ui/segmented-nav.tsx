@@ -31,3 +31,25 @@ export function SegmentedNavLink({
     </Link>
   );
 }
+
+export function SegmentedNavButton({
+  active,
+  onClick,
+  className = "",
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${active ? ACTIVE_SEG : INACTIVE_SEG} ${className}`}
+    >
+      {children}
+    </button>
+  );
+}

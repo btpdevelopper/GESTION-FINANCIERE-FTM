@@ -92,13 +92,19 @@ export default async function ProjectAdminPage({
     distinct: ["organizationId"],
   });
 
-  const contractSettingsList = await prisma.companyContractSettings.findMany({
-    where: { projectId },
-  });
+  const [contractSettingsList, revisionConfigsList] = await Promise.all([
+    prisma.companyContractSettings.findMany({ where: { projectId } }),
+    prisma.revisionIndexConfig.findMany({
+      where: { projectId },
+      include: { components: { orderBy: { label: "asc" } } },
+    }),
+  ]);
   const settingsByOrg = new Map(contractSettingsList.map((s) => [s.organizationId, s]));
+  const revisionConfigsByOrg = new Map(revisionConfigsList.map((c) => [c.organizationId, c]));
 
   const enterprises = enterpriseMembers.map((m) => {
     const s = settingsByOrg.get(m.organizationId) ?? null;
+    const rc = revisionConfigsByOrg.get(m.organizationId) ?? null;
     return {
       id: m.organization.id,
       name: m.organization.name,
@@ -111,9 +117,21 @@ export default async function ProjectAdminPage({
             avanceTravauxRefundStartPercent:
               s.avanceTravauxRefundStartPercent !== null ? Number(s.avanceTravauxRefundStartPercent) : null,
             avanceTravauxRefundInstallments: s.avanceTravauxRefundInstallments,
-            penaltyType: s.penaltyType as "NONE" | "FREE_AMOUNT" | "DAILY_RATE",
-            penaltyDailyRateCents: s.penaltyDailyRateCents !== null ? Number(s.penaltyDailyRateCents) : null,
             revisionPrixActive: s.revisionPrixActive,
+          }
+        : null,
+      revisionConfig: rc
+        ? {
+            moisZero: rc.moisZero,
+            fixedPart: Number(rc.fixedPart),
+            variablePart: Number(rc.variablePart),
+            components: rc.components.map((c) => ({
+              id: c.id,
+              idbank: c.idbank,
+              label: c.label,
+              weight: Number(c.weight),
+              baseValue: Number(c.baseValue),
+            })),
           }
         : null,
     };

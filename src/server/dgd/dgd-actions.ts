@@ -115,8 +115,19 @@ export async function submitDgdAction(raw: unknown) {
     throw new Error(`La situation N°${openSituation.numero} est encore en cours. Clôturez toutes les situations avant de soumettre le DGD.`);
   }
 
-  // Freeze financial amounts
+  // Force-flush all pending révision regularizations (legally required at DGD)
+  const pendingRegs = await prisma.pendingRegularization.findMany({
+    where: { projectId: data.projectId, organizationId: member.organizationId, status: "PENDING" },
+    select: { id: true, deltaAmountHtCents: true },
+  });
+  const regularizationTotal = pendingRegs.reduce(
+    (sum, r) => sum + r.deltaAmountHtCents,
+    BigInt(0)
+  );
+
+  // Freeze financial amounts (DGD formula + pending regularizations)
   const totals = await calculateDgdTotals(data.projectId, member.organizationId);
+  const soldeDgd = totals.soldeDgdHtCents + regularizationTotal;
 
   await prisma.$transaction(async (tx) => {
     await tx.dgdRecord.update({
@@ -129,11 +140,19 @@ export async function submitDgdAction(raw: unknown) {
         penaltiesTotalHtCents: totals.penaltiesTotalHtCents,
         retenueGarantieCents: totals.retenueGarantieCents,
         acomptesVersesHtCents: totals.acomptesVersesHtCents,
-        soldeDgdHtCents: totals.soldeDgdHtCents,
+        soldeDgdHtCents: soldeDgd,
+        regularizationAmountHtCents: regularizationTotal,
         submittedAt: new Date(),
         submittedByMemberId: member.id,
       },
     });
+
+    if (pendingRegs.length > 0) {
+      await tx.pendingRegularization.updateMany({
+        where: { id: { in: pendingRegs.map((r) => r.id) } },
+        data: { status: "APPLIED_TO_DGD", resolvedAt: new Date() },
+      });
+    }
 
     await tx.dgdReview.create({
       data: {
@@ -153,12 +172,13 @@ export async function submitDgdAction(raw: unknown) {
       dgdId: data.dgdId,
       organizationId: member.organizationId,
       organizationName: org?.name ?? "",
-      soldeDgdHtCents: totals.soldeDgdHtCents.toString(),
+      soldeDgdHtCents: soldeDgd.toString(),
     },
   });
 
   await auditDgd(user.id, "DGD_SUBMITTED", data.dgdId, {
-    soldeDgdHtCents: totals.soldeDgdHtCents.toString(),
+    soldeDgdHtCents: soldeDgd.toString(),
+    regularizationAmountHtCents: regularizationTotal.toString(),
   });
   revalidateDgd(data.projectId, member.organizationId);
 }

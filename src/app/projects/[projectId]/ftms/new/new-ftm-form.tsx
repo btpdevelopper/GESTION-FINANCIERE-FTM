@@ -4,10 +4,11 @@ import { useState } from "react";
 import { ProjectRole, ModificationSource } from "@prisma/client";
 import { useRouter } from "next/navigation";
 import { createFtmAction, createFtmDemandAction, updateFtmDemandDraftAction, deleteDemandDocumentAction, rejectFtmDemandAction } from "@/server/ftm/ftm-actions";
-import { 
-  Building2, FileText, ChevronRight, Plus, X, 
-  UploadCloud, Paperclip, CheckCircle2, AlertCircle, Loader2 
+import {
+  Building2, FileText, ChevronRight, Plus, X,
+  UploadCloud, Paperclip, CheckCircle2, AlertCircle, Loader2, XCircle
 } from "lucide-react";
+import { ModalOverlay, ModalContainer, ModalHeader, ModalFooter, Button, Alert } from "@/components/ui";
 
 type Props = {
   projectId: string;
@@ -63,16 +64,37 @@ export function NewFtmForm({ projectId, role, userOrgId, orgs, demandId, initial
     }
   };
 
-  const handleReject = async () => {
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectComment, setRejectComment] = useState("");
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const [rejectSubmitting, setRejectSubmitting] = useState(false);
+
+  const openRejectModal = () => {
+    setRejectError(null);
+    setRejectComment("");
+    setRejectModalOpen(true);
+  };
+
+  const closeRejectModal = () => {
+    if (rejectSubmitting) return;
+    setRejectModalOpen(false);
+  };
+
+  const handleConfirmReject = async () => {
     if (!demandId) return;
-    if (!window.confirm("Voulez-vous vraiment refuser cette demande de l'entreprise ?")) return;
-    setLoading(true);
+    const trimmed = rejectComment.trim();
+    if (trimmed.length < 10) {
+      setRejectError("Indiquez un motif d'au moins 10 caractères.");
+      return;
+    }
+    setRejectError(null);
+    setRejectSubmitting(true);
     try {
-      await rejectFtmDemandAction(projectId, demandId);
+      await rejectFtmDemandAction(projectId, demandId, trimmed);
       router.push(`/projects/${projectId}/ftms?tab=demandes`);
     } catch (err: any) {
-      setError(err.message);
-      setLoading(false);
+      setRejectError(err.message ?? "Erreur lors du refus.");
+      setRejectSubmitting(false);
     }
   };
 
@@ -187,6 +209,7 @@ export function NewFtmForm({ projectId, role, userOrgId, orgs, demandId, initial
   const availableOrgsToAdd = orgs.filter(o => !selectedOrgs[o.id]);
 
   return (
+    <>
     <form className="flex flex-col gap-8 pb-12">
       {error && (
         <div className="flex px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm gap-2">
@@ -435,7 +458,7 @@ export function NewFtmForm({ projectId, role, userOrgId, orgs, demandId, initial
          {!isCompany && demandId && (
            <button
              type="button"
-             onClick={handleReject}
+             onClick={openRejectModal}
              disabled={loading}
              className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-6 py-2.5 text-sm font-medium text-red-600 transition-opacity hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
            >
@@ -454,5 +477,54 @@ export function NewFtmForm({ projectId, role, userOrgId, orgs, demandId, initial
         </div>
       )}
     </form>
+
+    {rejectModalOpen && (
+      <ModalOverlay onClose={closeRejectModal}>
+        <ModalContainer maxWidth="max-w-md">
+          <ModalHeader
+            title="Refuser la demande"
+            icon={<XCircle className="h-4 w-4 text-red-500" />}
+            onClose={closeRejectModal}
+          />
+          <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
+            Indiquez à l&apos;entreprise pourquoi cette demande est refusée. Le motif lui sera envoyé par email.
+          </p>
+          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Motif du refus <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            value={rejectComment}
+            onChange={(e) => setRejectComment(e.target.value)}
+            rows={5}
+            maxLength={2000}
+            placeholder="Ex. Cette modification doit être traitée dans le marché de base. Merci de…"
+            className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            autoFocus
+          />
+          <p className="mt-1 text-[11px] text-slate-400">
+            {rejectComment.trim().length}/2000 — minimum 10 caractères
+          </p>
+          {rejectError && (
+            <Alert variant="error" className="mt-3">
+              {rejectError}
+            </Alert>
+          )}
+          <ModalFooter>
+            <Button variant="ghost" onClick={closeRejectModal} disabled={rejectSubmitting}>
+              Annuler
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleConfirmReject}
+              disabled={rejectSubmitting || rejectComment.trim().length < 10}
+            >
+              {rejectSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {rejectSubmitting ? "Envoi…" : "Refuser la demande"}
+            </Button>
+          </ModalFooter>
+        </ModalContainer>
+      </ModalOverlay>
+    )}
+    </>
   );
 }

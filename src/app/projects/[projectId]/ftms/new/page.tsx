@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectMember } from "@/server/membership";
 import { can } from "@/lib/permissions/resolve";
 import { NewFtmForm } from "./new-ftm-form";
-import { FileText, XCircle, CheckCircle2, Clock, Paperclip } from "lucide-react";
+import { FileText, Clock, Paperclip } from "lucide-react";
+import { Card, CardSubsection } from "@/components/ui";
 
 export default async function NewFtmPage({
   params,
@@ -57,100 +58,144 @@ export default async function NewFtmPage({
     redirect(`/projects/${projectId}/ftms/${demand.ftmRecords[0].id}`);
   }
 
-  // ── Bug #6: If demand is REJECTED, render a read-only historical view ──
+  // ── If demand is REJECTED, render a read-only historical view ──
   if (demand?.status === "REJECTED") {
+    const rejecter =
+      demand.rejectedBy?.user?.name ?? demand.rejectedBy?.user?.email ?? "MOE/MOA";
+    const rejecterOrg = demand.rejectedBy?.organization?.name ?? null;
+    const submitter =
+      demand.initiator.organization?.name ??
+      demand.initiator.user.name ??
+      demand.initiator.user.email;
     return (
-      <div className="mx-auto max-w-5xl space-y-6">
-        <Link href={`/projects/${projectId}/ftms?tab=demandes`} className="text-sm text-slate-600 underline hover:text-slate-900 transition-colors">
+      <div className="mx-auto max-w-5xl space-y-4">
+        <Link
+          href={`/projects/${projectId}/ftms?tab=demandes`}
+          className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+        >
           ← Retour aux demandes
         </Link>
 
-        {/* REJECTED Banner */}
-        <div className="rounded-xl border border-red-200 bg-gradient-to-br from-red-50 to-red-100/50 p-6 shadow-sm dark:border-red-900/50 dark:from-red-950/30 dark:to-red-900/10">
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/50">
-              <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
-            </div>
-            <div className="flex-1">
-              <h2 className="text-lg font-bold text-red-900 dark:text-red-200">
-                Demande refusée
-              </h2>
-              <p className="mt-1 text-sm text-red-700 dark:text-red-400">
-                Cette demande de l'entreprise <strong>{demand.initiator.organization?.name ?? demand.initiator.user.name}</strong> a été refusée
-                {demand.rejectedBy ? (
-                  <> par <strong>{demand.rejectedBy.user?.name ?? demand.rejectedBy.user?.email}</strong>{demand.rejectedBy.organization ? <> ({demand.rejectedBy.organization.name})</> : null}</>
-                ) : " par la MOE/MOA"}
-                {demand.rejectedAt ? (
-                  <> le <strong>{new Date(demand.rejectedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</strong></>
-                ) : null}.
-              </p>
-            </div>
+        {/* Status header (dot + inline metadata) */}
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden />
+            <span className="text-sm font-medium text-red-700 dark:text-red-400">
+              Refusée
+            </span>
           </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Refusée par{" "}
+            <span className="font-medium text-slate-700 dark:text-slate-200">
+              {rejecter}
+            </span>
+            {rejecterOrg && (
+              <span className="text-slate-400 dark:text-slate-500"> ({rejecterOrg})</span>
+            )}
+            {demand.rejectedAt && (
+              <>
+                {" "}le{" "}
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  {new Date(demand.rejectedAt).toLocaleDateString("fr-FR", {
+                    day: "2-digit",
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </span>
+              </>
+            )}
+          </p>
         </div>
 
+        {/* Rejection comment */}
+        {demand.rejectionComment && (
+          <Card className="border-l-2 border-l-red-400 p-4 dark:border-l-red-500/70">
+            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Motif du refus
+            </p>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800 dark:text-slate-200">
+              {demand.rejectionComment}
+            </p>
+          </Card>
+        )}
+
         {/* Original Request Details */}
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden dark:border-slate-800 dark:bg-slate-900/60">
-          <div className="bg-slate-50/50 px-5 py-4 border-b border-slate-100 dark:bg-slate-800/80 dark:border-slate-800">
-            <h2 className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-              <FileText className="w-4 h-4 text-slate-500" />
-              Détails de la demande initiale
-            </h2>
-          </div>
-          <div className="p-5 flex flex-col gap-5">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Titre</label>
-              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{demand.title}</p>
+        <Card className="p-4">
+          <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-white">
+            <FileText className="h-3.5 w-3.5 text-slate-500" />
+            Détails de la demande initiale
+          </h2>
+          <div className="space-y-3">
+            <div>
+              <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Titre
+              </p>
+              <p className="text-sm text-slate-900 dark:text-slate-100">{demand.title}</p>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Description</label>
-              <div className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-lg border border-slate-100 dark:border-slate-800">
+            <div>
+              <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Description
+              </p>
+              <CardSubsection className="whitespace-pre-wrap p-3 text-sm text-slate-700 dark:text-slate-300">
                 {demand.description}
-              </div>
+              </CardSubsection>
             </div>
-            {demand.requestedMoeResponseDate && (
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-slate-400" />
-                <span className="text-sm text-slate-600 dark:text-slate-400">
-                  Date de réponse souhaitée : <strong className="text-slate-900 dark:text-slate-200">{new Date(demand.requestedMoeResponseDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</strong>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+              {demand.requestedMoeResponseDate && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Clock className="h-3 w-3 text-slate-400" />
+                  <span className="font-medium">Réponse souhaitée :</span>{" "}
+                  {new Date(demand.requestedMoeResponseDate).toLocaleDateString("fr-FR", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })}
                 </span>
-              </div>
-            )}
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span>Soumise par {demand.initiator.organization?.name ?? demand.initiator.user.name ?? demand.initiator.user.email}</span>
-              <span className="text-slate-300 dark:text-slate-600">•</span>
-              <span>le {new Date(demand.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</span>
+              )}
+              <span className="text-slate-300 dark:text-slate-700">·</span>
+              <span>Soumise par <span className="font-medium text-slate-700 dark:text-slate-200">{submitter}</span></span>
+              <span className="text-slate-300 dark:text-slate-700">·</span>
+              <span>
+                le{" "}
+                {new Date(demand.createdAt).toLocaleDateString("fr-FR", {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </span>
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Documents */}
         {demand.documents && demand.documents.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden dark:border-slate-800 dark:bg-slate-900/60">
-            <div className="bg-slate-50/50 px-5 py-4 border-b border-slate-100 dark:bg-slate-800/80 dark:border-slate-800">
-              <h2 className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                <Paperclip className="w-4 h-4 text-slate-500" />
-                Documents joints
-              </h2>
-            </div>
-            <div className="p-5 flex flex-col gap-2">
+          <Card className="p-4">
+            <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-white">
+              <Paperclip className="h-3.5 w-3.5 text-slate-500" />
+              Documents joints
+            </h2>
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {demand.documents.map((doc: any) => (
-                <div key={doc.id} className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800">
-                  <span className="truncate font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-slate-400" />
-                    {doc.name}
+                <li
+                  key={doc.id}
+                  className="flex items-center justify-between gap-3 py-2 text-sm"
+                >
+                  <span className="flex min-w-0 items-center gap-2 truncate text-slate-700 dark:text-slate-300">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="truncate">{doc.name}</span>
                   </span>
                   <a
                     href={`/api/ftm-doc?path=${encodeURIComponent(doc.url)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                    className="shrink-0 text-xs text-slate-500 underline-offset-2 hover:text-slate-900 hover:underline dark:text-slate-400 dark:hover:text-slate-100"
                   >
                     Ouvrir
                   </a>
-                </div>
+                </li>
               ))}
-            </div>
-          </div>
+            </ul>
+          </Card>
         )}
       </div>
     );

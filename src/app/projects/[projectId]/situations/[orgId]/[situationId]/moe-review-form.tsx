@@ -25,9 +25,6 @@ type FtmDecision = "APPROVED" | "REFUSED" | "CORRECTION_NEEDED";
 type Props = {
   projectId: string;
   situationId: string;
-  orgId: string;
-  penaltyType: string;
-  penaltyDailyRateCents: number | null;
   currentCumulativeHtCents: number;
   currentRevisionCumulativeHtCents: number;
   revisionPrixActive: boolean;
@@ -36,6 +33,7 @@ type Props = {
   forecastWaived: boolean;
   marcheTotalCents: number;
   previousCumulativeCents: number;
+  previousRevisionCumulativeCents: number;
   ftmBillings: FtmBillingLine[];
 };
 
@@ -46,9 +44,6 @@ function formatEur(cents: number): string {
 export function MoeReviewForm({
   projectId,
   situationId,
-  orgId,
-  penaltyType,
-  penaltyDailyRateCents,
   currentCumulativeHtCents,
   currentRevisionCumulativeHtCents,
   revisionPrixActive,
@@ -57,6 +52,7 @@ export function MoeReviewForm({
   forecastWaived,
   marcheTotalCents,
   previousCumulativeCents,
+  previousRevisionCumulativeCents,
   ftmBillings,
 }: Props) {
   const router = useRouter();
@@ -70,21 +66,21 @@ export function MoeReviewForm({
   const currentBaseCumulativeCents = currentCumulativeHtCents - currentRevisionCumulativeHtCents;
   const [adjustedBaseStr, setAdjustedBaseStr] = useState((currentBaseCumulativeCents / 100).toFixed(2));
   const [adjustedRevisionStr, setAdjustedRevisionStr] = useState((currentRevisionCumulativeHtCents / 100).toFixed(2));
-  const [delayDays, setDelayDays] = useState("");
-  const [freeAmount, setFreeAmount] = useState("");
 
   const adjustedBase = adjustAmount ? Math.round(parseFloat(adjustedBaseStr.replace(",", ".") || "0") * 100) : currentBaseCumulativeCents;
   const adjustedRevision = adjustAmount && revisionPrixActive ? Math.round(parseFloat(adjustedRevisionStr.replace(",", ".") || "0") * 100) : currentRevisionCumulativeHtCents;
   const effectiveCents = adjustAmount ? adjustedBase + adjustedRevision : currentCumulativeHtCents;
-  const ftmPeriodCents = ftmBillings.reduce((sum, b) => sum + b.billedAmountCents, 0);
-  const thisPeriodCents = Math.max(0, effectiveCents - previousCumulativeCents) + ftmPeriodCents;
+
+  // Split totals so each consumer gets the right one.
+  const prevBaseCumulativeCents = previousCumulativeCents - previousRevisionCumulativeCents;
+  const ftmPeriodCents = ftmBillings
+    .filter((b) => b.status !== "MOE_REFUSED" && b.status !== "MOA_REFUSED")
+    .reduce((sum, b) => sum + b.billedAmountCents, 0);
+  const periodBaseCents = Math.max(0, adjustedBase - prevBaseCumulativeCents);
+  const periodRevisionCents = Math.max(0, adjustedRevision - previousRevisionCumulativeCents);
+  const thisPeriodCents = periodBaseCents + periodRevisionCents + ftmPeriodCents;
   const hasForecast = forecastEntries.length > 0;
   const showPanel = hasForecast || forecastWaived;
-
-  const computedPenaltyCents =
-    penaltyType === "DAILY_RATE" && penaltyDailyRateCents && delayDays
-      ? penaltyDailyRateCents * parseInt(delayDays, 10)
-      : null;
 
   function handleFtmDecision(billingId: string, decision: FtmDecision) {
     setFtmDecisions((prev) => ({ ...prev, [billingId]: decision }));
@@ -108,13 +104,6 @@ export function MoeReviewForm({
 
     const moeAdjustedBaseAmountHtCents = adjustAmount ? adjustedBase : null;
     const moeAdjustedRevisionAmountHtCents = adjustAmount && revisionPrixActive ? adjustedRevision : null;
-
-    const penaltyAmountCents =
-      penaltyType === "DAILY_RATE" && computedPenaltyCents
-        ? computedPenaltyCents
-        : penaltyType === "FREE_AMOUNT" && freeAmount
-        ? Math.round(parseFloat(freeAmount.replace(",", ".")) * 100)
-        : null;
 
     // Validate FTM lines: every pending line must have a decision; correction requires comment
     const missing = pendingFtmBillings.find((b) => !ftmDecisions[b.id]);
@@ -145,9 +134,6 @@ export function MoeReviewForm({
           comment: fd.get("comment") as string,
           moeAdjustedBaseAmountHtCents,
           moeAdjustedRevisionAmountHtCents,
-          penaltyType: penaltyType || "NONE",
-          penaltyDelayDays: delayDays ? parseInt(delayDays, 10) : null,
-          penaltyAmountCents,
           ftmReviews,
         });
         router.refresh();
@@ -271,54 +257,12 @@ export function MoeReviewForm({
                   <ForecastComplianceBanner
                     entries={forecastEntries}
                     periodLabel={periodLabel}
-                    thisPeriodCents={thisPeriodCents}
+                    thisPeriodCents={periodBaseCents}
                   />
                 )}
               </div>
             )}
           </div>
-
-          {/* Penalty */}
-          {penaltyType !== "NONE" && (
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-slate-600 dark:text-slate-400">Pénalités</p>
-              {penaltyType === "DAILY_RATE" && (
-                <div className="flex items-center gap-3">
-                  <div>
-                    <label className="block text-[11px] text-slate-500 mb-1">Jours de retard</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={delayDays}
-                      onChange={(e) => setDelayDays(e.target.value)}
-                      className="w-24 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                    />
-                  </div>
-                  {computedPenaltyCents !== null && (
-                    <p className="mt-4 text-xs font-medium text-red-700 dark:text-red-400">
-                      = {formatEur(computedPenaltyCents)}
-                    </p>
-                  )}
-                </div>
-              )}
-              {penaltyType === "FREE_AMOUNT" && (
-                <div>
-                  <label className="block text-[11px] text-slate-500 mb-1">Montant pénalité</label>
-                  <div className="relative w-48">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={freeAmount}
-                      onChange={(e) => setFreeAmount(e.target.value)}
-                      className="w-full rounded border border-slate-200 bg-white px-3 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">€</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* FTM billing review */}
           {pendingFtmBillings.length > 0 && (
@@ -425,7 +369,7 @@ export function MoeReviewForm({
             entries={forecastEntries}
             forecastWaived={forecastWaived}
             periodLabel={periodLabel}
-            thisPeriodCents={thisPeriodCents}
+            thisPeriodCents={periodBaseCents}
           />
         )}
       </div>

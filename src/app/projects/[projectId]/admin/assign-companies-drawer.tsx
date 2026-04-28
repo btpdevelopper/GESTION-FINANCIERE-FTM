@@ -78,8 +78,8 @@ export function AssignCompaniesDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 z-[998] bg-black/40" onClick={onClose} />
-      <div className="fixed right-0 top-0 z-[999] flex h-full w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900">
+      <div className="fixed inset-0 z-[998] animate-fade-in bg-black/40" onClick={onClose} />
+      <div className="fixed right-0 top-0 z-[999] flex h-full w-full max-w-lg animate-slide-in-right flex-col border-l border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
           <div>
             <div className="flex items-center gap-2">

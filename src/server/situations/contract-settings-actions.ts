@@ -17,8 +17,6 @@ const ContractSettingsSchema = z.object({
   avanceTravauxRefundStartMonth: z.number().int().min(1).nullable(),
   avanceTravauxRefundStartPercent: z.number().min(0).max(100).nullable(),
   avanceTravauxRefundInstallments: z.number().int().min(1).nullable(),
-  penaltyType: z.enum(["NONE", "FREE_AMOUNT", "DAILY_RATE"]),
-  penaltyDailyRateCents: z.number().int().min(0).nullable(),
   revisionPrixActive: z.boolean(),
 });
 
@@ -51,9 +49,6 @@ export async function upsertCompanyContractSettingsAction(raw: unknown) {
       avanceTravauxRefundStartMonth: data.avanceTravauxRefundStartMonth,
       avanceTravauxRefundStartPercent: data.avanceTravauxRefundStartPercent,
       avanceTravauxRefundInstallments: data.avanceTravauxRefundInstallments,
-      penaltyType: data.penaltyType,
-      penaltyDailyRateCents:
-        data.penaltyDailyRateCents !== null ? BigInt(data.penaltyDailyRateCents) : null,
       revisionPrixActive: data.revisionPrixActive,
     },
     update: {
@@ -64,9 +59,6 @@ export async function upsertCompanyContractSettingsAction(raw: unknown) {
       avanceTravauxRefundStartMonth: data.avanceTravauxRefundStartMonth,
       avanceTravauxRefundStartPercent: data.avanceTravauxRefundStartPercent,
       avanceTravauxRefundInstallments: data.avanceTravauxRefundInstallments,
-      penaltyType: data.penaltyType,
-      penaltyDailyRateCents:
-        data.penaltyDailyRateCents !== null ? BigInt(data.penaltyDailyRateCents) : null,
       revisionPrixActive: data.revisionPrixActive,
     },
   });

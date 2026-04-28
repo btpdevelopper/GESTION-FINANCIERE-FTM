@@ -40,3 +40,5 @@ export {
   onForecastMoeReviewed,
   onForecastMoaValidated,
 } from "./functions/forecast-notifications";
+
+export { checkRevisionIndices } from "./functions/check-revision-indices";

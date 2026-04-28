@@ -73,7 +73,14 @@ export default async function DgdOrgDetailPage({
         role={pm.role}
       />
 
-      <DgdFinancialRecap data={recapData} />
+      <DgdFinancialRecap
+        data={recapData}
+        regularizationAmountHtCents={
+          dgd?.regularizationAmountHtCents != null
+            ? Number(dgd.regularizationAmountHtCents)
+            : null
+        }
+      />
     </div>
   );
 }

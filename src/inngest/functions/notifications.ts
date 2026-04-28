@@ -426,7 +426,8 @@ export const sendDemandSubmittedNotification = inngest.createFunction(
 export const sendDemandRejectedNotification = inngest.createFunction(
   { id: "send-demand-rejected-notification", retries: 3, triggers: [{ event: "ftm/demand.rejected" }] },
   async ({ event, step }) => {
-    const { projectId, demandTitle, initiatorProjectMemberId } = event.data;
+    const { projectId, demandTitle, initiatorProjectMemberId, rejectionComment } =
+      event.data;
 
     const recipients = await step.run("resolve-company-emails", async () => {
       const initiator = await prisma.projectMember.findUnique({
@@ -448,6 +449,7 @@ export const sendDemandRejectedNotification = inngest.createFunction(
           react: React.createElement(DemandRejectedEmail, {
             demandTitle,
             projectUrl,
+            rejectionComment,
           }),
         })
       )

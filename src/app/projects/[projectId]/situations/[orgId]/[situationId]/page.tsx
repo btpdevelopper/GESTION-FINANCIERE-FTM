@@ -10,7 +10,7 @@ import { can } from "@/lib/permissions/resolve";
 import { prisma } from "@/lib/prisma";
 import { MoeReviewForm } from "./moe-review-form";
 import { MoaValidateForm } from "./moa-validate-form";
-import { UpdateDraftForm } from "./update-draft-form";
+import { UpdateDraftForm, type RevisionIndexState, type PendingRegularizationItem } from "./update-draft-form";
 import { SituationTimeline } from "./situation-timeline";
 import { CheckCircle, XCircle, AlertCircle, Clock, FileText, AlertTriangle, ShieldAlert, ChevronRight } from "lucide-react";
 import { PenaltyStatus } from "@prisma/client";
@@ -195,6 +195,63 @@ export default async function SituationDetailPage({
         .then((rows) => rows.map((r) => r.periodLabel))
     : [];
 
+  // Revision de prix data — only loaded when the form is visible
+  let revisionIndexState: RevisionIndexState | null = null;
+  let pendingRegularizations: PendingRegularizationItem[] = [];
+
+  if (showDraftEdit && revisionPrixActive) {
+    const [revisionConfig, indexLogs, pendingRegs] = await Promise.all([
+      prisma.revisionIndexConfig.findUnique({
+        where: { projectId_organizationId: { projectId, organizationId: orgId } },
+        include: { components: { orderBy: { label: "asc" } } },
+      }),
+      prisma.situationIndexLog.findMany({
+        where: { situationId },
+        select: { componentId: true, indexValue: true, enteredByUser: true, isProvisional: true },
+      }),
+      prisma.pendingRegularization.findMany({
+        where: { projectId, organizationId: orgId, status: "PENDING" },
+        include: {
+          sourceSituation: { select: { numero: true, periodLabel: true } },
+          component: { select: { label: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
+
+    if (revisionConfig) {
+      const logMap = new Map(indexLogs.map((l) => [l.componentId, l]));
+      revisionIndexState = {
+        fixedPart: Number(revisionConfig.fixedPart),
+        variablePart: Number(revisionConfig.variablePart),
+        components: revisionConfig.components.map((c) => {
+          const log = logMap.get(c.id);
+          return {
+            id: c.id,
+            label: c.label,
+            idbank: c.idbank,
+            weight: Number(c.weight),
+            baseValue: Number(c.baseValue),
+            currentValue: log ? Number(log.indexValue) : null,
+            enteredByUser: log?.enteredByUser ?? false,
+            isProvisional: log?.isProvisional ?? true,
+          };
+        }),
+      };
+    }
+
+    pendingRegularizations = pendingRegs.map((r) => ({
+      id: r.id,
+      period: r.period,
+      deltaAmountHtCents: Number(r.deltaAmountHtCents),
+      sourceSituationNumero: r.sourceSituation.numero,
+      sourceSituationPeriodLabel: r.sourceSituation.periodLabel,
+      componentLabel: r.component.label,
+      definitiveIndexValue: Number(r.definitiveIndexValue),
+      provisionalIndexValue: Number(r.provisionalIndexValue),
+    }));
+  }
+
   return (
     <div className="max-w-3xl space-y-6">
       {/* Header */}
@@ -351,6 +408,8 @@ export default async function SituationDetailPage({
             quoteAmountCents: Number(f.quoteAmountCents),
           }))}
           usedPeriods={usedPeriods}
+          revisionIndexState={revisionIndexState}
+          pendingRegularizations={pendingRegularizations}
         />
       )}
 
@@ -469,15 +528,6 @@ export default async function SituationDetailPage({
               {situation.moeComment}
             </p>
           )}
-          {situation.penaltyAmountCents && situation.penaltyAmountCents > BigInt(0) && (
-            <p className="text-sm text-red-700 dark:text-red-400">
-              Pénalité appliquée :{" "}
-              <strong>{formatEur(situation.penaltyAmountCents)}</strong>
-              {situation.penaltyType === "DAILY_RATE" && situation.penaltyDelayDays && (
-                <> ({situation.penaltyDelayDays} jours de retard)</>
-              )}
-            </p>
-          )}
         </div>
       )}
 
@@ -556,9 +606,6 @@ export default async function SituationDetailPage({
         <MoeReviewForm
           projectId={projectId}
           situationId={situationId}
-          orgId={orgId}
-          penaltyType={contractSettings?.penaltyType ?? "NONE"}
-          penaltyDailyRateCents={contractSettings?.penaltyDailyRateCents ? Number(contractSettings.penaltyDailyRateCents) : null}
           currentCumulativeHtCents={Number(situation.cumulativeAmountHtCents + situation.cumulativeRevisionAmountHtCents)}
           currentRevisionCumulativeHtCents={Number(situation.cumulativeRevisionAmountHtCents)}
           revisionPrixActive={revisionPrixActive}
@@ -567,6 +614,7 @@ export default async function SituationDetailPage({
           forecastWaived={forecastWaived}
           marcheTotalCents={effectiveMarcheCents}
           previousCumulativeCents={previousCumulativeCents}
+          previousRevisionCumulativeCents={previousRevisionCumulativeCents}
           ftmBillings={ftmBillings
             .filter((b) => b.status === "PENDING")
             .map((b) => ({
@@ -587,8 +635,14 @@ export default async function SituationDetailPage({
           situationId={situationId}
           orgId={orgId}
           periodLabel={situation.periodLabel}
-          submittedCumulativeCents={Number(situation.cumulativeAmountHtCents)}
+          submittedCumulativeCents={Number(
+            situation.cumulativeAmountHtCents + situation.cumulativeRevisionAmountHtCents,
+          )}
           acceptedCumulativeCents={acceptedCumulativeCents}
+          acceptedRevisionCumulativeCents={Number(
+            situation.moeAdjustedRevisionAmountHtCents ?? situation.cumulativeRevisionAmountHtCents,
+          )}
+          previousRevisionCumulativeCents={previousRevisionCumulativeCents}
           forecastEntries={forecastEntries}
           forecastWaived={forecastWaived}
           marcheTotalCents={effectiveMarcheCents}

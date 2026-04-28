@@ -18,8 +18,6 @@ function makeSettings(overrides: Partial<CompanyContractSettings> = {}): Company
     avanceTravauxRefundStartMonth: null,
     avanceTravauxRefundStartPercent: null,
     avanceTravauxRefundInstallments: null,
-    penaltyType: "NONE",
-    penaltyDailyRateCents: null,
     forecastWaived: false,
     cautionBancaireActive: false,
     cautionBancaireInsurer: null,

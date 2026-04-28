@@ -19,8 +19,6 @@ const baseSettings: CompanyContractSettings = {
   avanceTravauxRefundInstallments: null,
   avanceTravauxRefundStartMonth: null,
   avanceTravauxRefundStartPercent: null,
-  penaltyType: "NONE",
-  penaltyDailyRateCents: null,
   forecastWaived: false,
   cautionBancaireActive: false,
   cautionBancaireInsurer: null,

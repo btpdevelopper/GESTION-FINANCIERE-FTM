@@ -425,7 +425,7 @@ export function FtmTableView({
                 <TableRow
                   key={row.id}
                   onClick={() =>
-                    router.push(`/projects/${projectId}/ftms/${row.original.id}`)
+                    router.push(`/projects/${projectId}/ftms/${row.original.id}?from=tableau`)
                   }
                   className={`cursor-pointer ${isCancelled ? "opacity-60" : ""}`}
                 >

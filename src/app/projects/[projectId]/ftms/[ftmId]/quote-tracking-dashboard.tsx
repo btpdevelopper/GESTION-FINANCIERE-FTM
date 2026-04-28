@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Bell, BellOff } from "lucide-react";
 import { ProjectRole } from "@prisma/client";
-import { updateReminderSettingsAction } from "@/server/ftm/ftm-actions";
+import { ReminderConfigModal } from "./reminder-config-modal";
 
 function statusInfo(sub: any) {
   if (!sub) {
@@ -40,6 +40,14 @@ function statusInfo(sub: any) {
   };
 }
 
+function reminderLabel(freq: number | null | undefined): string {
+  if (!freq || freq <= 0) return "Désactivés";
+  if (freq === 1) return "Tous les jours";
+  if (freq === 7) return "Toutes les semaines";
+  if (freq === 14) return "Toutes les 2 semaines";
+  return `Tous les ${freq} jours`;
+}
+
 export function QuoteTrackingDashboard({
   ftm,
   pm,
@@ -51,12 +59,17 @@ export function QuoteTrackingDashboard({
   latestSubmissions: any[];
   projectId: string;
 }) {
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
 
   // Only MOE or MOA sees the full dashboard
   if (pm.role !== ProjectRole.MOE && pm.role !== ProjectRole.MOA) {
     return null;
   }
+
+  const activeOrg = ftm.concernedOrgs.find((o: any) => o.id === activeOrgId) ?? null;
+  const activeSub = activeOrg
+    ? latestSubmissions.find((s) => s.organizationId === activeOrg.organizationId)
+    : null;
 
   return (
     <div className="space-y-3">
@@ -80,7 +93,7 @@ export function QuoteTrackingDashboard({
               <th className="px-3 py-2.5 font-medium">Date soumission</th>
               <th className="px-3 py-2.5 font-medium">Date limite</th>
               <th className="px-3 py-2.5 font-medium">Montant HT</th>
-              <th className="px-3 py-2.5 font-medium">Rappel (j)</th>
+              <th className="px-3 py-2.5 font-medium">Rappels</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-950">
@@ -89,6 +102,8 @@ export function QuoteTrackingDashboard({
                 (s) => s.organizationId === org.organizationId
               );
               const { label, classes } = statusInfo(sub);
+              const freq = org.reminderFrequencyDays ?? null;
+              const reminderActive = freq != null && freq > 0;
 
               return (
                 <tr
@@ -148,39 +163,23 @@ export function QuoteTrackingDashboard({
                       : "—"}
                   </td>
                   <td className="px-3 py-2.5">
-                    <form
-                      action={async (fd) => {
-                        setIsUpdating(true);
-                        const freqVal = fd.get("freq") as string;
-                        const freq = freqVal ? parseInt(freqVal) : null;
-                        await updateReminderSettingsAction(
-                          org.id,
-                          projectId,
-                          ftm.id,
-                          freq
-                        );
-                        setIsUpdating(false);
-                      }}
+                    <button
+                      type="button"
+                      onClick={() => setActiveOrgId(org.id)}
+                      className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs font-medium transition-colors ${
+                        reminderActive
+                          ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                          : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-500 dark:hover:bg-slate-800/60"
+                      }`}
+                      title="Configurer les rappels"
                     >
-                      <div className="flex max-w-[100px] items-center gap-1">
-                        <input
-                          type="number"
-                          name="freq"
-                          min="0"
-                          title="Fréquence de rappel (jours). 0 = désactivé."
-                          defaultValue={org.reminderFrequencyDays ?? ""}
-                          placeholder="0"
-                          className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
-                        />
-                        <button
-                          type="submit"
-                          className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                          title="Sauvegarder"
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </form>
+                      {reminderActive ? (
+                        <Bell className="h-3 w-3" />
+                      ) : (
+                        <BellOff className="h-3 w-3" />
+                      )}
+                      {reminderLabel(freq)}
+                    </button>
                   </td>
                 </tr>
               );
@@ -198,6 +197,21 @@ export function QuoteTrackingDashboard({
           </tbody>
         </table>
       </div>
+
+      {activeOrg && (
+        <ReminderConfigModal
+          open={!!activeOrg}
+          onClose={() => setActiveOrgId(null)}
+          projectId={projectId}
+          ftmId={ftm.id}
+          concernedOrgId={activeOrg.id}
+          orgName={activeOrg.organization.name}
+          initialFreq={activeOrg.reminderFrequencyDays ?? null}
+          lastReminderAt={activeOrg.lastReminderAt ?? null}
+          dateLimite={activeOrg.dateLimiteDevis ?? null}
+          hasSubmitted={!!activeSub}
+        />
+      )}
     </div>
   );
 }

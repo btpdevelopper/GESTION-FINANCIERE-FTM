@@ -7,7 +7,7 @@ import { TabGeneral } from "./tab-general";
 import { TabFinance } from "./tab-finance";
 import { TabRbac } from "./tab-rbac";
 import { TabContrats } from "./tab-contrats";
-import { TabNav, TabNavButton } from "@/components/ui";
+import { SegmentedNav, SegmentedNavButton } from "@/components/ui";
 
 type TabKey = "SETTINGS" | "FINANCE" | "RBAC" | "CONTRATS";
 
@@ -41,9 +41,9 @@ export function ConfigurationClient({
 
   return (
     <div className="mt-4">
-      <TabNav>
+      <SegmentedNav>
         {TABS.map(({ key, label, icon: Icon }) => (
-          <TabNavButton
+          <SegmentedNavButton
             key={key}
             active={activeTab === key}
             onClick={() => setActiveTab(key)}
@@ -51,9 +51,9 @@ export function ConfigurationClient({
           >
             <Icon className="h-3.5 w-3.5" />
             {label}
-          </TabNavButton>
+          </SegmentedNavButton>
         ))}
-      </TabNav>
+      </SegmentedNav>
 
       <div className="py-4">
         {activeTab === "SETTINGS" && <TabGeneral project={project} />}

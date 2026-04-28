@@ -966,6 +966,35 @@ export async function updateReminderSettingsAction(
   return { ok: true };
 }
 
+export async function resetReminderCadenceAction(
+  concernedOrgId: string,
+  projectId: string,
+  ftmId: string,
+) {
+  const user = await getAuthUser();
+  if (!user?.id) throw new Error("Non authentifié.");
+
+  const pm = await requireProjectMember(user.id, projectId);
+  if (pm.role !== ProjectRole.MOE && pm.role !== ProjectRole.MOA) {
+    throw new Error("Seul le MOE ou le MOA peut réinitialiser la cadence.");
+  }
+
+  const concernedOrg = await prisma.ftmConcernedOrganization.findFirst({
+    where: { id: concernedOrgId, ftmId, ftm: { projectId } },
+  });
+  if (!concernedOrg) throw new Error("Organisation introuvable pour ce FTM.");
+
+  // Nulling lastReminderAt makes the next remindQuotes cron run (daily 08:00 UTC)
+  // pick this org up immediately, without firing an extra Inngest event.
+  await prisma.ftmConcernedOrganization.update({
+    where: { id: concernedOrgId },
+    data: { lastReminderAt: null },
+  });
+
+  revalidatePath(`/projects/${projectId}/ftms/${ftmId}`);
+  return { ok: true };
+}
+
 export async function uploadFtmDocumentAction(formData: FormData) {
   const user = await getAuthUser();
   if (!user?.id) throw new Error("Non authentifié.");
@@ -1325,13 +1354,25 @@ export async function updateFtmDemandDraftAction(formData: FormData) {
   return demand;
 }
 
-export async function rejectFtmDemandAction(projectId: string, demandId: string) {
+export async function rejectFtmDemandAction(
+  projectId: string,
+  demandId: string,
+  rejectionComment: string,
+) {
   const user = await getAuthUser();
   if (!user?.id) throw new Error("Non authentifié.");
 
   const pm = await requireProjectMember(user.id, projectId);
   if (pm.role !== ProjectRole.MOE && pm.role !== ProjectRole.MOA) {
     throw new Error("Droit insuffisant.");
+  }
+
+  const trimmed = (rejectionComment ?? "").trim();
+  if (trimmed.length < 10) {
+    throw new Error("Indiquez un motif de refus d'au moins 10 caractères.");
+  }
+  if (trimmed.length > 2000) {
+    throw new Error("Le motif de refus ne peut pas dépasser 2000 caractères.");
   }
 
   const existing = await prisma.ftmDemand.findUnique({ where: { id: demandId } });
@@ -1344,6 +1385,7 @@ export async function rejectFtmDemandAction(projectId: string, demandId: string)
       status: "REJECTED",
       rejectedByMemberId: pm.id,
       rejectedAt: new Date(),
+      rejectionComment: trimmed,
     },
   });
 
@@ -1356,6 +1398,7 @@ export async function rejectFtmDemandAction(projectId: string, demandId: string)
       demandId,
       demandTitle: existing.title,
       initiatorProjectMemberId: existing.initiatorProjectMemberId,
+      rejectionComment: trimmed,
     },
   });
 

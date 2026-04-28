@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { getAuthUser } from "@/lib/auth/user";
 import { notFound } from "next/navigation";
-import { ProjectRole } from "@prisma/client";
+import { Capability, ProjectRole } from "@prisma/client";
 import { requireProjectMember } from "@/server/membership";
+import { can } from "@/lib/permissions/resolve";
 import { listFtms, listFtmDemands } from "@/server/ftm/queries";
 import { FtmKanbanBoard } from "./kanban-board";
 import { DemandsList } from "./demands-list";
@@ -28,6 +29,9 @@ export default async function FtmsListPage({
 
   const ftms = await listFtms(projectId, pm) as any;
   const demands = await listFtmDemands(projectId, pm) as any;
+  const isEntreprise = pm.role === ProjectRole.ENTREPRISE;
+  const canCreateFtm = !isEntreprise && (await can(pm.id, Capability.CREATE_FTM));
+  const showCreateButton = isEntreprise || canCreateFtm;
 
   // Demands that need MOE/MOA action (not ENTREPRISE — their own DRAFT demands are not "pending")
   const pendingDemandsCount =
@@ -49,11 +53,11 @@ export default async function FtmsListPage({
             Fiches de Travaux Modificatifs
           </h1>
         </div>
-        {pm.role === ProjectRole.ENTREPRISE && (
+        {showCreateButton && (
           <Link href={`/projects/${projectId}/ftms/new`}>
             <Button size="sm">
               <Plus className="h-3.5 w-3.5" />
-              Nouvelle demande
+              {isEntreprise ? "Nouvelle demande" : "Nouveau FTM"}
             </Button>
           </Link>
         )}

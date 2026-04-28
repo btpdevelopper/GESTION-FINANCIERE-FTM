@@ -31,7 +31,6 @@ type ReviewEvent = {
   decision: string | null;
   comment: string | null;
   adjustedAmountHtCents: bigint | null;
-  penaltyAmountCents: bigint | null;
 };
 
 type Props = {
@@ -319,11 +318,6 @@ function MoeReviewRow({ event, isLast }: { event: ReviewEvent; isLast: boolean }
           <span className="font-medium text-amber-700 dark:text-amber-400">
             {formatEur(event.adjustedAmountHtCents)}
           </span>
-        </p>
-      )}
-      {event.penaltyAmountCents != null && event.penaltyAmountCents > BigInt(0) && (
-        <p className="text-xs text-red-600 dark:text-red-400">
-          Pénalité : {formatEur(event.penaltyAmountCents)}
         </p>
       )}
       {event.comment && (

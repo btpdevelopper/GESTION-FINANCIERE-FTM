@@ -15,7 +15,13 @@ const TD_R = "px-3 py-1.5 text-xs text-right tabular-nums text-slate-700 dark:te
 const TD_R_AMBER = "px-3 py-1.5 text-xs text-right tabular-nums text-amber-700 dark:text-amber-400";
 const TD_R_RED = "px-3 py-1.5 text-xs text-right tabular-nums text-red-700 dark:text-red-400";
 
-export function DgdFinancialRecap({ data }: { data: DgdFinancialRecapData }) {
+export function DgdFinancialRecap({
+  data,
+  regularizationAmountHtCents,
+}: {
+  data: DgdFinancialRecapData;
+  regularizationAmountHtCents?: number | null;
+}) {
   const { situations, ftms, dgdPenalties } = data;
 
   if (situations.length === 0) {
@@ -193,15 +199,6 @@ export function DgdFinancialRecap({ data }: { data: DgdFinancialRecapData }) {
                     </tr>
                   ))}
 
-                  {/* Pénalités total row (if any and no detail already shown via frozen snapshot) */}
-                  {sit.penaltyAmountCents > 0 && sit.penalties.length === 0 && (
-                    <tr key={`pentot-${sit.id}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/20">
-                      <td className={TD}>Pénalités de la période</td>
-                      <td className={TD_R_RED}>− {fmt(sit.penaltyAmountCents)}</td>
-                      <td className="px-3 py-1.5 text-xs text-slate-400 dark:text-slate-600 text-right">—</td>
-                    </tr>
-                  )}
-
                   {/* Net à payer */}
                   <tr key={`net-${sit.id}`} className="border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950">
                     <td className="px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100">
@@ -221,7 +218,32 @@ export function DgdFinancialRecap({ data }: { data: DgdFinancialRecapData }) {
         </div>
       </div>
 
-      {/* ── Section C — DGD-level penalties ────────────────────────────── */}
+      {/* ── Section C — Régularisations révision de prix ───────────────── */}
+      {regularizationAmountHtCents != null && regularizationAmountHtCents !== 0 && (
+        <div className="rounded border border-indigo-200 dark:border-indigo-900/40">
+          <div className="border-b border-indigo-200 px-3 py-2 dark:border-indigo-900/40">
+            <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">
+              Régularisations — Révision de prix
+            </p>
+          </div>
+          <div className="px-3 py-2.5 flex items-center justify-between gap-4">
+            <p className="text-xs text-slate-600 dark:text-slate-400 max-w-prose">
+              Rattrapages d&apos;indices provenant de situations facturées provisoirement et intégrés
+              au DGD (non inclus dans les situations clôturées ci-dessus).
+            </p>
+            <span className={`shrink-0 text-sm font-semibold tabular-nums ${
+              regularizationAmountHtCents >= 0
+                ? "text-teal-700 dark:text-teal-400"
+                : "text-red-700 dark:text-red-400"
+            }`}>
+              {regularizationAmountHtCents >= 0 ? "+" : ""}
+              {fmt(regularizationAmountHtCents)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Section D — DGD-level penalties ────────────────────────────── */}
       {dgdPenalties.length > 0 && (
         <div className="rounded border border-red-200 dark:border-red-900/40">
           <div className="border-b border-red-200 px-3 py-2 dark:border-red-900/40">

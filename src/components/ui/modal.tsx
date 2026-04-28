@@ -11,7 +11,7 @@ export function ModalOverlay({
 }) {
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4"
+      className="fixed inset-0 z-[1000] flex animate-fade-in items-center justify-center bg-black/40 px-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose?.();
       }}
@@ -32,7 +32,7 @@ export function ModalContainer({
 }) {
   return (
     <div
-      className={`w-full ${maxWidth} rounded border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900 ${className}`}
+      className={`w-full ${maxWidth} animate-scale-in rounded border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900 ${className}`}
       onClick={(e) => e.stopPropagation()}
     >
       {children}

@@ -128,6 +128,7 @@ export type FtmEvents = {
       demandTitle: string;
       /** Used to resolve the demanding company's members */
       initiatorProjectMemberId: string;
+      rejectionComment: string;
     };
   };
 };

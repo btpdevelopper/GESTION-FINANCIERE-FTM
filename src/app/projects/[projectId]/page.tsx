@@ -95,7 +95,13 @@ export default async function ProjectHomePage({
   return (
     <div className="max-w-3xl space-y-5">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+        <Link
+          href="/projects"
+          className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+        >
+          ← Tous les projets
+        </Link>
+        <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
           {project.name}
         </h1>
         {!isEntreprise && project.baseContract && (

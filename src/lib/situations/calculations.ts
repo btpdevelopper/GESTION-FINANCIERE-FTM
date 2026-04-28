@@ -106,18 +106,3 @@ function isRefundTriggered(
   return false;
 }
 
-export function computePenaltyAmount(
-  penaltyType: string | null | undefined,
-  penaltyDailyRateCents: bigint | null | undefined,
-  penaltyDelayDays: number | null | undefined,
-  freePenaltyAmountCents: bigint | null | undefined
-): bigint {
-  const zero = BigInt(0);
-  if (penaltyType === "DAILY_RATE" && penaltyDailyRateCents && penaltyDelayDays) {
-    return penaltyDailyRateCents * BigInt(penaltyDelayDays);
-  }
-  if (penaltyType === "FREE_AMOUNT" && freePenaltyAmountCents) {
-    return freePenaltyAmountCents;
-  }
-  return zero;
-}

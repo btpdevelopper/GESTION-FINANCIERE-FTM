@@ -7,7 +7,9 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth/user";
 import { requireProjectMember } from "@/server/membership";
 import { can } from "@/lib/permissions/resolve";
-import { computeFinancialSnapshot, computePenaltyAmount } from "@/lib/situations/calculations";
+import { computeFinancialSnapshot } from "@/lib/situations/calculations";
+import { computeRevisionAmount, type IndexComponentInput } from "@/lib/revision/calculations";
+import { fetchInseeIndex } from "@/lib/revision/insee-fetcher";
 import { uploadFtmDocument } from "@/lib/storage";
 import { validateFileMagicNumber } from "@/lib/validations/magic";
 import {
@@ -50,13 +52,128 @@ function revalidate(projectId: string, orgId: string, situationId?: string) {
   }
 }
 
+// ─── Revision helper ─────────────────────────────────────────────────────────
+// Resolves index values, computes cumulative revision, and upserts SituationIndexLog.
+// Returns { cumulativeRevisionCents, periodBaseNetCents } to store on the situation.
+
+async function resolveRevision(opts: {
+  situationId: string;
+  projectId: string;
+  organizationId: string;
+  cumulativeBaseCents: bigint;
+  numero: number;
+  periodYearMonth: string | undefined;
+  manualIndexValues: Record<string, number>;
+  previousRevisionCumulative: bigint;
+  previousBaseCumulative: bigint;
+}): Promise<{ cumulativeRevisionCents: bigint; periodBaseNetCents: bigint }> {
+  const {
+    situationId, projectId, organizationId,
+    cumulativeBaseCents, numero, periodYearMonth,
+    manualIndexValues, previousRevisionCumulative, previousBaseCumulative,
+  } = opts;
+
+  // Load config inside the helper — avoids passing it through
+  const config = await prisma.revisionIndexConfig.findUnique({
+    where: { projectId_organizationId: { projectId, organizationId } },
+    include: { components: true },
+  });
+
+  if (!config || !periodYearMonth) {
+    return { cumulativeRevisionCents: BigInt(0), periodBaseNetCents: BigInt(0) };
+  }
+
+  const p0Cents = cumulativeBaseCents > previousBaseCumulative
+    ? cumulativeBaseCents - previousBaseCumulative
+    : BigInt(0);
+
+  // Load existing index logs so update doesn't unnecessarily re-fetch auto values
+  const existingLogs = await prisma.situationIndexLog.findMany({
+    where: { situationId },
+    select: { componentId: true, indexValue: true, enteredByUser: true },
+  });
+  const existingLogMap = new Map(
+    existingLogs.map((l) => [l.componentId, { value: Number(l.indexValue), enteredByUser: l.enteredByUser }])
+  );
+
+  const componentInputs: IndexComponentInput[] = [];
+  const logUpserts: { componentId: string; value: number; enteredByUser: boolean }[] = [];
+
+  for (const comp of config.components) {
+    let indexValue: number | null = null;
+    let enteredByUser = false;
+
+    if (manualIndexValues[comp.id] !== undefined) {
+      // Explicit override from the form (company typed it)
+      indexValue = manualIndexValues[comp.id];
+      enteredByUser = true;
+    } else if (existingLogMap.has(comp.id)) {
+      // Already stored from a previous save — reuse to avoid redundant API calls
+      const existing = existingLogMap.get(comp.id)!;
+      indexValue = existing.value;
+      enteredByUser = existing.enteredByUser;
+    } else {
+      // First time — try INSEE
+      const obs = await fetchInseeIndex(comp.idbank, periodYearMonth);
+      indexValue = obs?.value ?? null;
+    }
+
+    if (indexValue === null) {
+      throw new Error(
+        `Valeur de l'indice "${comp.label}" introuvable pour la période ${periodYearMonth}. Saisissez-la manuellement.`
+      );
+    }
+
+    componentInputs.push({
+      weight: Number(comp.weight),
+      baseValue: Number(comp.baseValue),
+      currentValue: indexValue,
+    });
+    logUpserts.push({ componentId: comp.id, value: indexValue, enteredByUser });
+  }
+
+  // Upsert SituationIndexLog entries (always provisional at save time)
+  for (const entry of logUpserts) {
+    await prisma.situationIndexLog.upsert({
+      where: { situationId_componentId: { situationId, componentId: entry.componentId } },
+      create: {
+        situationId,
+        componentId: entry.componentId,
+        period: periodYearMonth,
+        indexValue: entry.value,
+        isProvisional: true,
+        enteredByUser: entry.enteredByUser,
+      },
+      update: {
+        indexValue: entry.value,
+        enteredByUser: entry.enteredByUser,
+      },
+    });
+  }
+
+  const revisionPeriodCents = computeRevisionAmount(
+    p0Cents,
+    Number(config.fixedPart),
+    Number(config.variablePart),
+    componentInputs
+  );
+
+  return {
+    cumulativeRevisionCents: previousRevisionCumulative + revisionPeriodCents,
+    periodBaseNetCents: p0Cents,
+  };
+}
+
 // ─── Create ─────────────────────────────────────────────────────────────────
 
 const CreateSituationSchema = z.object({
   projectId: z.string().uuid(),
   periodLabel: z.string().min(1).max(100),
+  // "YYYY-MM" of the billing month — required when revisionPrixActive, used to fetch Index_n
+  periodYearMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   cumulativeAmountHtCents: z.number().int().min(0),
-  cumulativeRevisionAmountHtCents: z.number().int().min(0).default(0),
+  // componentId → index value, provided only for components the INSEE API didn't return
+  indexValues: z.record(z.string().uuid(), z.number().positive()).optional().default({}),
   documentUrl: z.string().max(1000).optional().nullable(),
   documentName: z.string().max(255).optional().nullable(),
 });
@@ -106,15 +223,7 @@ export async function createSituationAction(raw: unknown) {
 
   const nextNumero = lastSituation ? lastSituation.numero + 1 : 1;
 
-  // Enforce server-side: if revision is not active for this org, ignore any revision amount
-  const contractSettingsForCreate = await prisma.companyContractSettings.findUnique({
-    where: { projectId_organizationId: { projectId: data.projectId, organizationId: orgId } },
-    select: { revisionPrixActive: true },
-  });
-  const revisionCents = contractSettingsForCreate?.revisionPrixActive
-    ? BigInt(data.cumulativeRevisionAmountHtCents)
-    : BigInt(0);
-
+  // Create the situation first so we have an ID for the index logs
   const situation = await prisma.situationTravaux.create({
     data: {
       projectId: data.projectId,
@@ -123,11 +232,48 @@ export async function createSituationAction(raw: unknown) {
       periodLabel: data.periodLabel,
       status: SituationStatus.DRAFT,
       cumulativeAmountHtCents: BigInt(data.cumulativeAmountHtCents),
-      cumulativeRevisionAmountHtCents: revisionCents,
-      documentUrl: data.documentUrl ?? null,
-      documentName: data.documentName ?? null,
+      cumulativeRevisionAmountHtCents: BigInt(0),
     },
   });
+
+  // Compute revision (fetches indices from INSEE + creates SituationIndexLog entries)
+  const [previousRevisionCumulative, previousTotalCumulative] = await Promise.all([
+    getPreviousApprovedRevisionCumulative(data.projectId, orgId, nextNumero),
+    getPreviousApprovedCumulative(data.projectId, orgId, nextNumero),
+  ]);
+  const previousBaseCumulative = previousTotalCumulative - previousRevisionCumulative;
+
+  const { cumulativeRevisionCents, periodBaseNetCents } = await resolveRevision({
+    situationId: situation.id,
+    projectId: data.projectId,
+    organizationId: orgId,
+    cumulativeBaseCents: BigInt(data.cumulativeAmountHtCents),
+    numero: nextNumero,
+    periodYearMonth: data.periodYearMonth,
+    manualIndexValues: data.indexValues ?? {},
+    previousRevisionCumulative,
+    previousBaseCumulative,
+  });
+
+  if (cumulativeRevisionCents !== BigInt(0) || periodBaseNetCents !== BigInt(0)) {
+    await prisma.situationTravaux.update({
+      where: { id: situation.id },
+      data: {
+        cumulativeRevisionAmountHtCents: cumulativeRevisionCents,
+        periodBaseNetHtCents: periodBaseNetCents,
+        documentUrl: data.documentUrl ?? null,
+        documentName: data.documentName ?? null,
+      },
+    });
+  } else {
+    await prisma.situationTravaux.update({
+      where: { id: situation.id },
+      data: {
+        documentUrl: data.documentUrl ?? null,
+        documentName: data.documentName ?? null,
+      },
+    });
+  }
 
   await audit(user.id, "SITUATION_CREATED", situation.id, { numero: nextNumero, periodLabel: data.periodLabel });
   revalidate(data.projectId, orgId, situation.id);
@@ -140,8 +286,10 @@ const UpdateDraftSchema = z.object({
   situationId: z.string().uuid(),
   projectId: z.string().uuid(),
   periodLabel: z.string().min(1).max(100),
+  periodYearMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   cumulativeAmountHtCents: z.number().int().min(0),
-  cumulativeRevisionAmountHtCents: z.number().int().min(0).default(0),
+  // Only needed for components that the INSEE API didn't return
+  indexValues: z.record(z.string().uuid(), z.number().positive()).optional().default({}),
   documentUrl: z.string().max(1000).optional().nullable(),
   documentName: z.string().max(255).optional().nullable(),
   correctionComment: z.string().max(2000).optional().nullable(),
@@ -191,8 +339,27 @@ export async function updateSituationDraftAction(raw: unknown) {
     }
   }
 
-  // When the MOE set an adjusted amount, proposing a different total requires a comment
-  const newTotal = BigInt(data.cumulativeAmountHtCents) + BigInt(data.cumulativeRevisionAmountHtCents ?? 0);
+  // Recompute revision (reuses existing SituationIndexLog; only re-fetches for manual overrides)
+  const [previousRevisionCumulative, previousTotalCumulative] = await Promise.all([
+    getPreviousApprovedRevisionCumulative(data.projectId, member.organizationId, situation.numero),
+    getPreviousApprovedCumulative(data.projectId, member.organizationId, situation.numero),
+  ]);
+  const previousBaseCumulative = previousTotalCumulative - previousRevisionCumulative;
+
+  const { cumulativeRevisionCents, periodBaseNetCents } = await resolveRevision({
+    situationId: data.situationId,
+    projectId: data.projectId,
+    organizationId: member.organizationId,
+    cumulativeBaseCents: BigInt(data.cumulativeAmountHtCents),
+    numero: situation.numero,
+    periodYearMonth: data.periodYearMonth,
+    manualIndexValues: data.indexValues ?? {},
+    previousRevisionCumulative,
+    previousBaseCumulative,
+  });
+
+  // When the MOE set an adjusted amount, proposing a different base+revision total requires a comment
+  const newTotal = BigInt(data.cumulativeAmountHtCents) + cumulativeRevisionCents;
   if (
     situation.status === SituationStatus.MOE_CORRECTION &&
     situation.moeAdjustedAmountHtCents !== null &&
@@ -207,23 +374,14 @@ export async function updateSituationDraftAction(raw: unknown) {
     throw new Error("Vous devez joindre un nouveau document lors d'une correction.");
   }
 
-  // Enforce server-side: if revision is not active for this org, ignore any revision amount
-  const contractSettingsForUpdate = await prisma.companyContractSettings.findUnique({
-    where: { projectId_organizationId: { projectId: data.projectId, organizationId: member.organizationId } },
-    select: { revisionPrixActive: true },
-  });
-  const revisionCentsUpdate = contractSettingsForUpdate?.revisionPrixActive
-    ? BigInt(data.cumulativeRevisionAmountHtCents ?? 0)
-    : BigInt(0);
-
   await prisma.situationTravaux.update({
     where: { id: data.situationId },
     data: {
       periodLabel: data.periodLabel,
       cumulativeAmountHtCents: BigInt(data.cumulativeAmountHtCents),
-      cumulativeRevisionAmountHtCents: revisionCentsUpdate,
+      cumulativeRevisionAmountHtCents: cumulativeRevisionCents,
+      periodBaseNetHtCents: periodBaseNetCents,
       correctionComment: data.correctionComment ?? null,
-      // Only overwrite document fields when a new file was explicitly provided
       ...(data.documentUrl !== undefined
         ? { documentUrl: data.documentUrl, documentName: data.documentName ?? null }
         : {}),
@@ -355,9 +513,6 @@ const MoeReviewSchema = z.object({
   comment: z.string().min(1, "Un commentaire est obligatoire."),
   moeAdjustedBaseAmountHtCents: z.number().int().min(0).optional().nullable(),
   moeAdjustedRevisionAmountHtCents: z.number().int().min(0).optional().nullable(),
-  penaltyType: z.enum(["NONE", "FREE_AMOUNT", "DAILY_RATE"]).optional().nullable(),
-  penaltyDelayDays: z.number().int().min(0).optional().nullable(),
-  penaltyAmountCents: z.number().int().min(0).optional().nullable(),
   ftmReviews: z.array(MoeFtmLineReviewSchema).optional(),
 });
 
@@ -391,20 +546,6 @@ export async function moeReviewSituationAction(raw: unknown) {
       "Des FTMs sont marqués à corriger. Renvoyez la situation en correction avant d'approuver."
     );
   }
-
-  // Compute final penalty amount
-  const contractSettings = await prisma.companyContractSettings.findUnique({
-    where: { projectId_organizationId: { projectId: data.projectId, organizationId: situation.organizationId } },
-  });
-  const effectivePenaltyType = data.penaltyType ?? contractSettings?.penaltyType ?? "NONE";
-  const penaltyAmount = computePenaltyAmount(
-    effectivePenaltyType,
-    data.penaltyType === "DAILY_RATE" ? (contractSettings?.penaltyDailyRateCents ?? null) : null,
-    data.penaltyDelayDays ?? null,
-    data.penaltyAmountCents !== null && data.penaltyAmountCents !== undefined
-      ? BigInt(data.penaltyAmountCents)
-      : null
-  );
 
   const nextStatus =
     data.decision === "APPROVED"
@@ -440,9 +581,6 @@ export async function moeReviewSituationAction(raw: unknown) {
         moeComment: data.comment,
         moeAdjustedAmountHtCents: moeAdjustedTotal,
         moeAdjustedRevisionAmountHtCents: moeAdjustedRevision,
-        penaltyType: effectivePenaltyType as "NONE" | "FREE_AMOUNT" | "DAILY_RATE",
-        penaltyDelayDays: data.penaltyDelayDays ?? null,
-        penaltyAmountCents: penaltyAmount > BigInt(0) ? penaltyAmount : null,
       },
     }),
     ...ftmReviews.map((r) => {
@@ -467,7 +605,6 @@ export async function moeReviewSituationAction(raw: unknown) {
       decision: data.decision,
       comment: data.comment,
       adjustedAmountHtCents: moeAdjustedTotal,
-      penaltyAmountCents: penaltyAmount > BigInt(0) ? penaltyAmount : null,
     },
   });
 
@@ -475,7 +612,6 @@ export async function moeReviewSituationAction(raw: unknown) {
     decision: data.decision,
     comment: data.comment,
     adjustedAmount: moeAdjustedTotal?.toString() ?? null,
-    penaltyAmountCents: penaltyAmount.toString(),
   });
 
   await inngest.send({
@@ -676,7 +812,7 @@ export async function moaValidateSituationAction(raw: unknown) {
 
   const totalEnveloppe = marcheTotal + ftmTotal;
   const dedicatedTotal = sumActivePenalties(dedicatedPenalties);
-  const penaltyAmount = (situation.penaltyAmountCents ?? BigInt(0)) + dedicatedTotal;
+  const penaltyAmount = dedicatedTotal;
   const ftmBilledTotal = ftmBillingLines.reduce((s, l) => s + l.billedAmountCents, BigInt(0));
 
   // Total cumulative = base + revision
@@ -744,6 +880,7 @@ export async function moaValidateSituationAction(raw: unknown) {
       periodRevisionHtCents,
       retenueGarantieAmountCents: snapshot.retenueGarantieAmountCents,
       avanceTravauxRemboursementCents: snapshot.avanceTravauxRemboursementCents,
+      penaltyAmountCents: penaltyAmount > BigInt(0) ? penaltyAmount : null,
       ftmBilledAmountCents: ftmBilledTotal > BigInt(0) ? ftmBilledTotal : null,
       netAmountHtCents: snapshot.netAmountHtCents + ftmBilledTotal,
     },
@@ -927,4 +1064,77 @@ export async function uploadSituationDocumentAction(
   const { path } = await uploadFtmDocument(storagePrefix, buffer, file.name, file.type);
 
   return { path, name: file.name };
+}
+
+// ─── Apply Pending Regularizations ──────────────────────────────────────────
+
+const ApplyRegularizationsSchema = z.object({
+  situationId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  regularizationIds: z.array(z.string().uuid()).min(1),
+});
+
+/**
+ * Applies selected PENDING regularizations to a DRAFT situation.
+ * Adds their deltaAmountHtCents to periodRevisionHtCents (a running tally on the draft)
+ * and marks each record as APPLIED.
+ */
+export async function applyRegularizationsToSituationAction(raw: unknown) {
+  const user = await getAuthUser();
+  if (!user?.id) throw new Error("Non authentifié.");
+
+  const parsed = ApplyRegularizationsSchema.safeParse(raw);
+  if (!parsed.success) throw new Error("Données invalides : " + parsed.error.message);
+  const data = parsed.data;
+
+  const member = await requireProjectMember(user.id, data.projectId);
+
+  const situation = await prisma.situationTravaux.findFirst({
+    where: {
+      id: data.situationId,
+      projectId: data.projectId,
+      organizationId: member.organizationId,
+      status: SituationStatus.DRAFT,
+    },
+  });
+  if (!situation) throw new Error("Situation introuvable ou non modifiable.");
+
+  const records = await prisma.pendingRegularization.findMany({
+    where: {
+      id: { in: data.regularizationIds },
+      organizationId: member.organizationId,
+      status: "PENDING",
+    },
+    select: { id: true, deltaAmountHtCents: true },
+  });
+
+  if (records.length === 0) throw new Error("Aucune régularisation éligible trouvée.");
+
+  const totalDelta = records.reduce((sum, r) => sum + r.deltaAmountHtCents, BigInt(0));
+
+  await prisma.$transaction([
+    prisma.situationTravaux.update({
+      where: { id: data.situationId },
+      data: {
+        cumulativeRevisionAmountHtCents: {
+          increment: totalDelta,
+        },
+      },
+    }),
+    prisma.pendingRegularization.updateMany({
+      where: { id: { in: records.map((r) => r.id) } },
+      data: {
+        status: "APPLIED",
+        appliedToSituationId: data.situationId,
+        resolvedAt: new Date(),
+      },
+    }),
+  ]);
+
+  await audit(user.id, "REGULARIZATION_APPLIED", data.situationId, {
+    regularizationIds: data.regularizationIds,
+    totalDeltaCents: totalDelta.toString(),
+  });
+
+  revalidate(data.projectId, member.organizationId, data.situationId);
 }

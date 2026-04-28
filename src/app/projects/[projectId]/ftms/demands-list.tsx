@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-
+import { ChevronRight } from "lucide-react";
 
 type FtmDemand = {
   id: string;
@@ -17,6 +17,71 @@ type FtmDemand = {
   ftmRecords: { id: string; number: number }[];
 };
 
+const STATUS_META: Record<
+  string,
+  { label: string; dot: string; text: string }
+> = {
+  DRAFT: {
+    label: "Brouillon",
+    dot: "bg-slate-400 dark:bg-slate-500",
+    text: "text-slate-500 dark:text-slate-400",
+  },
+  PENDING_MOE: {
+    label: "En attente MOE",
+    dot: "bg-amber-500",
+    text: "text-amber-700 dark:text-amber-400",
+  },
+  APPROVED: {
+    label: "Approuvée",
+    dot: "bg-emerald-500",
+    text: "text-emerald-700 dark:text-emerald-400",
+  },
+  REJECTED: {
+    label: "Refusée",
+    dot: "bg-red-500",
+    text: "text-red-700 dark:text-red-400",
+  },
+};
+
+function fmtRelative(d: Date): string {
+  const days = Math.round((Date.now() - new Date(d).getTime()) / 86_400_000);
+  if (days <= 0) return "aujourd'hui";
+  if (days === 1) return "hier";
+  if (days < 7) return `il y a ${days} j`;
+  if (days < 30) return `il y a ${Math.round(days / 7)} sem`;
+  if (days < 365) return `il y a ${Math.round(days / 30)} mois`;
+  return `il y a ${Math.round(days / 365)} an${Math.round(days / 365) > 1 ? "s" : ""}`;
+}
+
+function rowHrefAndAction(
+  demand: FtmDemand,
+  projectId: string,
+  isCompany: boolean,
+): { href: string; action: string } {
+  if (demand.status === "APPROVED" && demand.ftmRecords.length > 0) {
+    return {
+      href: `/projects/${projectId}/ftms/${demand.ftmRecords[0].id}?from=demandes`,
+      action: `Voir FTM N°${demand.ftmRecords[0].number}`,
+    };
+  }
+  if (demand.status === "PENDING_MOE" && !isCompany) {
+    return {
+      href: `/projects/${projectId}/ftms/new?demandId=${demand.id}`,
+      action: "Instruire",
+    };
+  }
+  if (demand.status === "DRAFT" && isCompany) {
+    return {
+      href: `/projects/${projectId}/ftms/new?demandId=${demand.id}`,
+      action: "Modifier",
+    };
+  }
+  return {
+    href: `/projects/${projectId}/ftms/new?demandId=${demand.id}`,
+    action: "Consulter",
+  };
+}
+
 export function DemandsList({
   demands,
   projectId,
@@ -28,128 +93,99 @@ export function DemandsList({
 }) {
   if (demands.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 py-16 dark:border-slate-800 dark:bg-slate-900/50">
-        <p className="text-sm text-slate-500">Aucune demande en cours.</p>
+      <div className="flex flex-col items-center justify-center rounded border border-slate-200 bg-white py-12 dark:border-slate-800 dark:bg-slate-900">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Aucune demande en cours.
+        </p>
         {isCompany && (
-           <Link
-             href={`/projects/${projectId}/ftms/new`}
-             className="mt-4 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-           >
-             Faire une demande
-           </Link>
+          <Link
+            href={`/projects/${projectId}/ftms/new`}
+            className="mt-4 inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            Faire une demande
+          </Link>
         )}
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <ul role="list" className="divide-y divide-slate-100 dark:divide-slate-800">
-        {demands.map((demand) => (
-          <li
-            key={demand.id}
-            className="flex items-center justify-between gap-x-6 p-5 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50"
-          >
-            <div className="min-w-0">
-              <div className="flex items-start gap-x-3">
-                <p className="text-sm font-semibold leading-6 text-slate-900 dark:text-white">
-                  {demand.title}
-                </p>
-                <div className={`mt-0.5 whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset ${
-                    demand.status === "DRAFT" 
-                       ? "bg-slate-50 text-slate-600 ring-slate-500/10 dark:bg-slate-400/10 dark:text-slate-400 dark:ring-slate-400/20"
-                       : demand.status === "PENDING_MOE"
-                       ? "bg-yellow-50 text-yellow-800 ring-yellow-600/20 dark:bg-yellow-400/10 dark:text-yellow-500 dark:ring-yellow-400/20"
-                       : demand.status === "APPROVED"
-                       ? "bg-green-50 text-green-700 ring-green-600/20 dark:bg-green-500/10 dark:text-green-400 dark:ring-green-500/20"
-                       : "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-400/10 dark:text-red-400 dark:ring-red-400/20"
-                }`}>
-                  {demand.status === "DRAFT" && "Brouillon"}
-                  {demand.status === "PENDING_MOE" && "En attente MOE"}
-                  {demand.status === "APPROVED" && "Approuvé"}
-                  {demand.status === "REJECTED" && "Refusé"}
+    <div className="overflow-hidden rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        {demands.map((demand) => {
+          const status = STATUS_META[demand.status] ?? STATUS_META.DRAFT;
+          const { href, action } = rowHrefAndAction(demand, projectId, isCompany);
+          const submitter =
+            demand.initiator.organization?.name ??
+            demand.initiator.user.name ??
+            demand.initiator.user.email;
+
+          return (
+            <li key={demand.id}>
+              <Link
+                href={href}
+                className="group flex items-center gap-4 px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-900/60"
+              >
+                {/* Status dot */}
+                <span
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`}
+                  aria-hidden
+                />
+
+                {/* Main content */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-x-2">
+                    <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                      {demand.title}
+                    </p>
+                    {demand.ftmRecords.length > 0 && (
+                      <span className="shrink-0 font-mono text-[11px] text-slate-400 dark:text-slate-500">
+                        FTM N°{demand.ftmRecords[0].number}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500 dark:text-slate-400">
+                    <span className={`font-medium ${status.text}`}>
+                      {status.label}
+                    </span>
+                    <span className="text-slate-300 dark:text-slate-700">·</span>
+                    <span className="truncate">{submitter}</span>
+                    <span className="text-slate-300 dark:text-slate-700">·</span>
+                    <span
+                      title={new Intl.DateTimeFormat("fr-FR", {
+                        day: "2-digit",
+                        month: "long",
+                        year: "numeric",
+                      }).format(new Date(demand.createdAt))}
+                    >
+                      {fmtRelative(demand.createdAt)}
+                    </span>
+                    {demand.requestedMoeResponseDate && (
+                      <>
+                        <span className="text-slate-300 dark:text-slate-700">·</span>
+                        <span>
+                          réponse souhaitée :{" "}
+                          {new Intl.DateTimeFormat("fr-FR", {
+                            day: "2-digit",
+                            month: "short",
+                          }).format(new Date(demand.requestedMoeResponseDate))}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
-                {demand.ftmRecords.length > 0 && demand.ftmRecords.map(record => (
-                  <Link
-                    key={record.id}
-                    href={`/projects/${projectId}/ftms/${record.id}`}
-                    className="mt-0.5 whitespace-nowrap flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-600/20 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:text-indigo-400 dark:ring-indigo-500/20 dark:hover:bg-indigo-500/20 transition-colors"
-                  >
-                    Transformé : FTM N°{record.number}
-                  </Link>
-                ))}
-              </div>
-              <div className="mt-1 flex items-center gap-x-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                <p className="truncate">
-                  Demandé par {demand.initiator.organization?.name ?? demand.initiator.user.name ?? demand.initiator.user.email}
-                </p>
-                <svg viewBox="0 0 2 2" className="h-0.5 w-0.5 fill-current">
-                  <circle cx={1} cy={1} r={1} />
-                </svg>
-                <p className="whitespace-nowrap">
-                  Créé le <time dateTime={demand.createdAt.toISOString()}>{new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(demand.createdAt))}</time>
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-none items-center gap-x-4">
-              {(() => {
-                // APPROVED with linked FTM → navigate to FTM detail
-                if (demand.status === "APPROVED" && demand.ftmRecords.length > 0) {
-                  return (
-                    <Link
-                      href={`/projects/${projectId}/ftms/${demand.ftmRecords[0].id}`}
-                      className="hidden rounded-md bg-emerald-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 sm:block"
-                    >
-                      Voir FTM N°{demand.ftmRecords[0].number}
-                    </Link>
-                  );
-                }
-                // PENDING_MOE for MOE/MOA → instruct the demand
-                if (demand.status === "PENDING_MOE" && !isCompany) {
-                  return (
-                    <Link
-                      href={`/projects/${projectId}/ftms/new?demandId=${demand.id}`}
-                      className="hidden rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 sm:block"
-                    >
-                      Instruire
-                    </Link>
-                  );
-                }
-                // REJECTED → read-only view
-                if (demand.status === "REJECTED") {
-                  return (
-                    <Link
-                      href={`/projects/${projectId}/ftms/new?demandId=${demand.id}`}
-                      className="hidden rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700 dark:hover:bg-slate-700 sm:block"
-                    >
-                      Voir
-                    </Link>
-                  );
-                }
-                // DRAFT (company) → edit
-                if (demand.status === "DRAFT" && isCompany) {
-                  return (
-                    <Link
-                      href={`/projects/${projectId}/ftms/new?demandId=${demand.id}`}
-                      className="hidden rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700 dark:hover:bg-slate-700 sm:block"
-                    >
-                      Modifier
-                    </Link>
-                  );
-                }
-                // Fallback
-                return (
-                  <Link
-                    href={`/projects/${projectId}/ftms/new?demandId=${demand.id}`}
-                    className="hidden rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700 dark:hover:bg-slate-700 sm:block"
-                  >
-                    Consulter
-                  </Link>
-                );
-              })()}
-            </div>
-          </li>
-        ))}
+
+                {/* Trailing action hint */}
+                <div className="hidden shrink-0 items-center gap-1 text-xs text-slate-400 transition-colors group-hover:text-slate-700 sm:flex dark:text-slate-500 dark:group-hover:text-slate-200">
+                  <span className="opacity-0 transition-opacity group-hover:opacity-100">
+                    {action}
+                  </span>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </div>
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
